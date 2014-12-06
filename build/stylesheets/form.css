@@ -1,0 +1,23 @@
+/* line 1, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/form.css.scss */
+.form-box {
+  background: #F9FAFA;
+  border-radius: 10px;
+  box-shadow: 0 0 3px #e6e6e6; }
+  /* line 5, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/form.css.scss */
+  .form-box .header {
+    background: white;
+    padding: 10px 0;
+    border-bottom: 2px solid #e6e6e6;
+    border-radius: 10px 10px 0 0;
+    color: gray; }
+    /* line 11, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/form.css.scss */
+    .form-box .header h2, .form-box .header h3 {
+      font-weight: 100; }
+  /* line 15, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/form.css.scss */
+  .form-box .body {
+    padding: 20px; }
+  /* line 18, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/form.css.scss */
+  .form-box label {
+    font-size: 18px;
+    font-weight: 100;
+    color: gray; }
