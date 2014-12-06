@@ -1,0 +1,47 @@
+@import url("http://fonts.googleapis.com/css?family=Open+Sans:400,300,700");
+
+$body-bg: #2C89C8;
+$font-family-sans-serif: "Open Sans";
+
+$link-color: #cccccc;
+$link-hover-color: darken($link-color, 10%);
+$link-hover-decoration: none;
+
+$btn-danger-bg: #F05B2A;
+
+$input-border: #e6e6e6;
+$input-color: darken(#e6e6e6, 30%);
+$input-color-placeholder: #e6e6e6;
+
+@import "bootstrap";
+@import "font-awesome-sprockets";
+@import "font-awesome";
+@import "bootstrap-datepicker3";
+@import "selectize";
+@import "selectize.default";
+
+@import "form";
+@import "search";
+
+
+
+body{
+  padding-top: 100px;
+}
+
+.btn {
+  border-radius: 30px;
+  padding-left: 30px;
+  padding-right: 30px;
+}
+
+#menu{
+  background: #F9FAFA;
+  border-radius: 10px;
+  box-shadow: 0 0 3px #e6e6e6;
+  padding: 40px;
+  a{
+    font-size: 20px;
+  }
+}
+
