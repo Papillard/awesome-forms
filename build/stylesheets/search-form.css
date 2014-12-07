@@ -1,14 +1,14 @@
 /* line 1, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
-#trip-search {
+#search-form {
   padding: 20px;
   width: 80%;
   margin: 0 auto; }
   /* line 6, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
-  #trip-search .selectize-input {
+  #search-form .selectize-input {
     min-width: 250px !important;
     vertical-align: -10px; }
   /* line 12, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
-  #trip-search .input-daterange input {
+  #search-form .input-daterange input {
     height: 36px;
     font-size: 16px;
     width: 200px; }

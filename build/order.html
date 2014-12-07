@@ -23,7 +23,7 @@
       <div class="row">
         <div class="col-xs-6 col-xs-offset-3">
 
-  <form action="#" class="form-box">
+  <form action="#" class="form-box" id="order-form">
 
     <div class="header text-center">
       <h2>Find the best product</h2>
@@ -63,6 +63,10 @@
 
     $(function() {
 
+      function filter500( value, type ){
+        return value % 25 ? 2 : 0;
+      }
+
       $('#price-slider').noUiSlider({
         start: [ 0, 500 ],
         snap: true,
@@ -89,10 +93,11 @@
           '90%': 180,
           '95%': 190,
           'max': 200
-        }
+        },
       }).noUiSlider_pips({
-        mode: 'range',
-        density: 5
+        mode: 'positions',
+        values: [0,25,50,75,100],
+        density: 3
       });
 
       $('#price-slider').Link('lower').to($('#min'));
