@@ -19,6 +19,8 @@ $input-color-placeholder: lighten($input-border, 5%);
 @import "bootstrap-datepicker3";
 @import "selectize";
 @import "selectize.default";
+@import "jquery.nouislider";
+@import "jquery-ui";
 
 @import "form";
 @import "fa-placeholder";
