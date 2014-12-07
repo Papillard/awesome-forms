@@ -12471,35 +12471,36 @@ input.date-placeholder::-ms-input-placeholder::before {
   content: '\f073  ';
   color: #e6e6e6; }
 
-/* line 1, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search.css.scss */
+/* line 1, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
 #trip-search {
   padding: 20px;
   width: 80%;
   margin: 0 auto; }
-  /* line 5, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search.css.scss */
+  /* line 5, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
   #trip-search .selectize-input {
     min-width: 300px !important;
     vertical-align: -10px; }
-  /* line 11, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search.css.scss */
+  /* line 11, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
   #trip-search .input-daterange input {
     height: 36px; }
 
-/* line 31, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
+/* line 36, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
 body {
   padding-top: 100px; }
 
-/* line 35, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
+/* line 40, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
 .btn {
   border-radius: 30px;
   padding-left: 30px;
   padding-right: 30px; }
 
-/* line 41, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
+/* line 46, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
 #menu {
   background: #F9FAFA;
-  border-radius: 10px;
-  box-shadow: 0 0 3px #e6e6e6;
+  border-radius: 5px;
+  box-shadow: 1px 1px 3px #8a9d9d;
   padding: 40px; }
-  /* line 46, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
+  /* line 51, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/all.css.scss */
   #menu a {
-    font-size: 20px; }
+    font-size: 20px;
+    font-weight: 300; }
