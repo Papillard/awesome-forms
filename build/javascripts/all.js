@@ -12104,8292 +12104,6 @@ if ( typeof module === "object" && module && typeof module.exports === "object" 
 
 
 
-/* =========================================================
- * bootstrap-datepicker.js
- * Repo: https://github.com/eternicode/bootstrap-datepicker/
- * Demo: http://eternicode.github.io/bootstrap-datepicker/
- * Docs: http://bootstrap-datepicker.readthedocs.org/
- * Forked from http://www.eyecon.ro/bootstrap-datepicker
- * =========================================================
- * Started by Stefan Petre; improvements by Andrew Rowls + contributors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- * ========================================================= */
-
-
-(function($, undefined){
-
-	var $window = $(window);
-
-	function UTCDate(){
-		return new Date(Date.UTC.apply(Date, arguments));
-	}
-	function UTCToday(){
-		var today = new Date();
-		return UTCDate(today.getFullYear(), today.getMonth(), today.getDate());
-	}
-	function alias(method){
-		return function(){
-			return this[method].apply(this, arguments);
-		};
-	}
-
-	var DateArray = (function(){
-		var extras = {
-			get: function(i){
-				return this.slice(i)[0];
-			},
-			contains: function(d){
-				// Array.indexOf is not cross-browser;
-				// $.inArray doesn't work with Dates
-				var val = d && d.valueOf();
-				for (var i=0, l=this.length; i < l; i++)
-					if (this[i].valueOf() === val)
-						return i;
-				return -1;
-			},
-			remove: function(i){
-				this.splice(i,1);
-			},
-			replace: function(new_array){
-				if (!new_array)
-					return;
-				if (!$.isArray(new_array))
-					new_array = [new_array];
-				this.clear();
-				this.push.apply(this, new_array);
-			},
-			clear: function(){
-				this.splice(0);
-			},
-			copy: function(){
-				var a = new DateArray();
-				a.replace(this);
-				return a;
-			}
-		};
-
-		return function(){
-			var a = [];
-			a.push.apply(a, arguments);
-			$.extend(a, extras);
-			return a;
-		};
-	})();
-
-
-	// Picker object
-
-	var Datepicker = function(element, options){
-		this.dates = new DateArray();
-		this.viewDate = UTCToday();
-		this.focusDate = null;
-
-		this._process_options(options);
-
-		this.element = $(element);
-		this.isInline = false;
-		this.isInput = this.element.is('input');
-		this.component = this.element.is('.date') ? this.element.find('.add-on, .input-group-addon, .btn') : false;
-		this.hasInput = this.component && this.element.find('input').length;
-		if (this.component && this.component.length === 0)
-			this.component = false;
-
-		this.picker = $(DPGlobal.template);
-		this._buildEvents();
-		this._attachEvents();
-
-		if (this.isInline){
-			this.picker.addClass('datepicker-inline').appendTo(this.element);
-		}
-		else {
-			this.picker.addClass('datepicker-dropdown dropdown-menu');
-		}
-
-		if (this.o.rtl){
-			this.picker.addClass('datepicker-rtl');
-		}
-
-		this.viewMode = this.o.startView;
-
-		if (this.o.calendarWeeks)
-			this.picker.find('tfoot th.today')
-						.attr('colspan', function(i, val){
-							return parseInt(val) + 1;
-						});
-
-		this._allow_update = false;
-
-		this.setStartDate(this._o.startDate);
-		this.setEndDate(this._o.endDate);
-		this.setDaysOfWeekDisabled(this.o.daysOfWeekDisabled);
-
-		this.fillDow();
-		this.fillMonths();
-
-		this._allow_update = true;
-
-		this.update();
-		this.showMode();
-
-		if (this.isInline){
-			this.show();
-		}
-	};
-
-	Datepicker.prototype = {
-		constructor: Datepicker,
-
-		_process_options: function(opts){
-			// Store raw options for reference
-			this._o = $.extend({}, this._o, opts);
-			// Processed options
-			var o = this.o = $.extend({}, this._o);
-
-			// Check if "de-DE" style date is available, if not language should
-			// fallback to 2 letter code eg "de"
-			var lang = o.language;
-			if (!dates[lang]){
-				lang = lang.split('-')[0];
-				if (!dates[lang])
-					lang = defaults.language;
-			}
-			o.language = lang;
-
-			switch (o.startView){
-				case 2:
-				case 'decade':
-					o.startView = 2;
-					break;
-				case 1:
-				case 'year':
-					o.startView = 1;
-					break;
-				default:
-					o.startView = 0;
-			}
-
-			switch (o.minViewMode){
-				case 1:
-				case 'months':
-					o.minViewMode = 1;
-					break;
-				case 2:
-				case 'years':
-					o.minViewMode = 2;
-					break;
-				default:
-					o.minViewMode = 0;
-			}
-
-			o.startView = Math.max(o.startView, o.minViewMode);
-
-			// true, false, or Number > 0
-			if (o.multidate !== true){
-				o.multidate = Number(o.multidate) || false;
-				if (o.multidate !== false)
-					o.multidate = Math.max(0, o.multidate);
-				else
-					o.multidate = 1;
-			}
-			o.multidateSeparator = String(o.multidateSeparator);
-
-			o.weekStart %= 7;
-			o.weekEnd = ((o.weekStart + 6) % 7);
-
-			var format = DPGlobal.parseFormat(o.format);
-			if (o.startDate !== -Infinity){
-				if (!!o.startDate){
-					if (o.startDate instanceof Date)
-						o.startDate = this._local_to_utc(this._zero_time(o.startDate));
-					else
-						o.startDate = DPGlobal.parseDate(o.startDate, format, o.language);
-				}
-				else {
-					o.startDate = -Infinity;
-				}
-			}
-			if (o.endDate !== Infinity){
-				if (!!o.endDate){
-					if (o.endDate instanceof Date)
-						o.endDate = this._local_to_utc(this._zero_time(o.endDate));
-					else
-						o.endDate = DPGlobal.parseDate(o.endDate, format, o.language);
-				}
-				else {
-					o.endDate = Infinity;
-				}
-			}
-
-			o.daysOfWeekDisabled = o.daysOfWeekDisabled||[];
-			if (!$.isArray(o.daysOfWeekDisabled))
-				o.daysOfWeekDisabled = o.daysOfWeekDisabled.split(/[,\s]*/);
-			o.daysOfWeekDisabled = $.map(o.daysOfWeekDisabled, function(d){
-				return parseInt(d, 10);
-			});
-
-			var plc = String(o.orientation).toLowerCase().split(/\s+/g),
-				_plc = o.orientation.toLowerCase();
-			plc = $.grep(plc, function(word){
-				return (/^auto|left|right|top|bottom$/).test(word);
-			});
-			o.orientation = {x: 'auto', y: 'auto'};
-			if (!_plc || _plc === 'auto')
-				; // no action
-			else if (plc.length === 1){
-				switch (plc[0]){
-					case 'top':
-					case 'bottom':
-						o.orientation.y = plc[0];
-						break;
-					case 'left':
-					case 'right':
-						o.orientation.x = plc[0];
-						break;
-				}
-			}
-			else {
-				_plc = $.grep(plc, function(word){
-					return (/^left|right$/).test(word);
-				});
-				o.orientation.x = _plc[0] || 'auto';
-
-				_plc = $.grep(plc, function(word){
-					return (/^top|bottom$/).test(word);
-				});
-				o.orientation.y = _plc[0] || 'auto';
-			}
-		},
-		_events: [],
-		_secondaryEvents: [],
-		_applyEvents: function(evs){
-			for (var i=0, el, ch, ev; i < evs.length; i++){
-				el = evs[i][0];
-				if (evs[i].length === 2){
-					ch = undefined;
-					ev = evs[i][1];
-				}
-				else if (evs[i].length === 3){
-					ch = evs[i][1];
-					ev = evs[i][2];
-				}
-				el.on(ev, ch);
-			}
-		},
-		_unapplyEvents: function(evs){
-			for (var i=0, el, ev, ch; i < evs.length; i++){
-				el = evs[i][0];
-				if (evs[i].length === 2){
-					ch = undefined;
-					ev = evs[i][1];
-				}
-				else if (evs[i].length === 3){
-					ch = evs[i][1];
-					ev = evs[i][2];
-				}
-				el.off(ev, ch);
-			}
-		},
-		_buildEvents: function(){
-			if (this.isInput){ // single input
-				this._events = [
-					[this.element, {
-						focus: $.proxy(this.show, this),
-						keyup: $.proxy(function(e){
-							if ($.inArray(e.keyCode, [27,37,39,38,40,32,13,9]) === -1)
-								this.update();
-						}, this),
-						keydown: $.proxy(this.keydown, this)
-					}]
-				];
-			}
-			else if (this.component && this.hasInput){ // component: input + button
-				this._events = [
-					// For components that are not readonly, allow keyboard nav
-					[this.element.find('input'), {
-						focus: $.proxy(this.show, this),
-						keyup: $.proxy(function(e){
-							if ($.inArray(e.keyCode, [27,37,39,38,40,32,13,9]) === -1)
-								this.update();
-						}, this),
-						keydown: $.proxy(this.keydown, this)
-					}],
-					[this.component, {
-						click: $.proxy(this.show, this)
-					}]
-				];
-			}
-			else if (this.element.is('div')){  // inline datepicker
-				this.isInline = true;
-			}
-			else {
-				this._events = [
-					[this.element, {
-						click: $.proxy(this.show, this)
-					}]
-				];
-			}
-			this._events.push(
-				// Component: listen for blur on element descendants
-				[this.element, '*', {
-					blur: $.proxy(function(e){
-						this._focused_from = e.target;
-					}, this)
-				}],
-				// Input: listen for blur on element
-				[this.element, {
-					blur: $.proxy(function(e){
-						this._focused_from = e.target;
-					}, this)
-				}]
-			);
-
-			this._secondaryEvents = [
-				[this.picker, {
-					click: $.proxy(this.click, this)
-				}],
-				[$(window), {
-					resize: $.proxy(this.place, this)
-				}],
-				[$(document), {
-					'mousedown touchstart': $.proxy(function(e){
-						// Clicked outside the datepicker, hide it
-						if (!(
-							this.element.is(e.target) ||
-							this.element.find(e.target).length ||
-							this.picker.is(e.target) ||
-							this.picker.find(e.target).length
-						)){
-							this.hide();
-						}
-					}, this)
-				}]
-			];
-		},
-		_attachEvents: function(){
-			this._detachEvents();
-			this._applyEvents(this._events);
-		},
-		_detachEvents: function(){
-			this._unapplyEvents(this._events);
-		},
-		_attachSecondaryEvents: function(){
-			this._detachSecondaryEvents();
-			this._applyEvents(this._secondaryEvents);
-		},
-		_detachSecondaryEvents: function(){
-			this._unapplyEvents(this._secondaryEvents);
-		},
-		_trigger: function(event, altdate){
-			var date = altdate || this.dates.get(-1),
-				local_date = this._utc_to_local(date);
-
-			this.element.trigger({
-				type: event,
-				date: local_date,
-				dates: $.map(this.dates, this._utc_to_local),
-				format: $.proxy(function(ix, format){
-					if (arguments.length === 0){
-						ix = this.dates.length - 1;
-						format = this.o.format;
-					}
-					else if (typeof ix === 'string'){
-						format = ix;
-						ix = this.dates.length - 1;
-					}
-					format = format || this.o.format;
-					var date = this.dates.get(ix);
-					return DPGlobal.formatDate(date, format, this.o.language);
-				}, this)
-			});
-		},
-
-		show: function(){
-			if (!this.isInline)
-				this.picker.appendTo('body');
-			this.picker.show();
-			this.place();
-			this._attachSecondaryEvents();
-			this._trigger('show');
-		},
-
-		hide: function(){
-			if (this.isInline)
-				return;
-			if (!this.picker.is(':visible'))
-				return;
-			this.focusDate = null;
-			this.picker.hide().detach();
-			this._detachSecondaryEvents();
-			this.viewMode = this.o.startView;
-			this.showMode();
-
-			if (
-				this.o.forceParse &&
-				(
-					this.isInput && this.element.val() ||
-					this.hasInput && this.element.find('input').val()
-				)
-			)
-				this.setValue();
-			this._trigger('hide');
-		},
-
-		remove: function(){
-			this.hide();
-			this._detachEvents();
-			this._detachSecondaryEvents();
-			this.picker.remove();
-			delete this.element.data().datepicker;
-			if (!this.isInput){
-				delete this.element.data().date;
-			}
-		},
-
-		_utc_to_local: function(utc){
-			return utc && new Date(utc.getTime() + (utc.getTimezoneOffset()*60000));
-		},
-		_local_to_utc: function(local){
-			return local && new Date(local.getTime() - (local.getTimezoneOffset()*60000));
-		},
-		_zero_time: function(local){
-			return local && new Date(local.getFullYear(), local.getMonth(), local.getDate());
-		},
-		_zero_utc_time: function(utc){
-			return utc && new Date(Date.UTC(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate()));
-		},
-
-		getDates: function(){
-			return $.map(this.dates, this._utc_to_local);
-		},
-
-		getUTCDates: function(){
-			return $.map(this.dates, function(d){
-				return new Date(d);
-			});
-		},
-
-		getDate: function(){
-			return this._utc_to_local(this.getUTCDate());
-		},
-
-		getUTCDate: function(){
-			return new Date(this.dates.get(-1));
-		},
-
-		setDates: function(){
-			var args = $.isArray(arguments[0]) ? arguments[0] : arguments;
-			this.update.apply(this, args);
-			this._trigger('changeDate');
-			this.setValue();
-		},
-
-		setUTCDates: function(){
-			var args = $.isArray(arguments[0]) ? arguments[0] : arguments;
-			this.update.apply(this, $.map(args, this._utc_to_local));
-			this._trigger('changeDate');
-			this.setValue();
-		},
-
-		setDate: alias('setDates'),
-		setUTCDate: alias('setUTCDates'),
-
-		setValue: function(){
-			var formatted = this.getFormattedDate();
-			if (!this.isInput){
-				if (this.component){
-					this.element.find('input').val(formatted).change();
-				}
-			}
-			else {
-				this.element.val(formatted).change();
-			}
-		},
-
-		getFormattedDate: function(format){
-			if (format === undefined)
-				format = this.o.format;
-
-			var lang = this.o.language;
-			return $.map(this.dates, function(d){
-				return DPGlobal.formatDate(d, format, lang);
-			}).join(this.o.multidateSeparator);
-		},
-
-		setStartDate: function(startDate){
-			this._process_options({startDate: startDate});
-			this.update();
-			this.updateNavArrows();
-		},
-
-		setEndDate: function(endDate){
-			this._process_options({endDate: endDate});
-			this.update();
-			this.updateNavArrows();
-		},
-
-		setDaysOfWeekDisabled: function(daysOfWeekDisabled){
-			this._process_options({daysOfWeekDisabled: daysOfWeekDisabled});
-			this.update();
-			this.updateNavArrows();
-		},
-
-		place: function(){
-			if (this.isInline)
-				return;
-			var calendarWidth = this.picker.outerWidth(),
-				calendarHeight = this.picker.outerHeight(),
-				visualPadding = 10,
-				windowWidth = $window.width(),
-				windowHeight = $window.height(),
-				scrollTop = $window.scrollTop();
-
-			var zIndex = parseInt(this.element.parents().filter(function(){
-					return $(this).css('z-index') !== 'auto';
-				}).first().css('z-index'))+10;
-			var offset = this.component ? this.component.parent().offset() : this.element.offset();
-			var height = this.component ? this.component.outerHeight(true) : this.element.outerHeight(false);
-			var width = this.component ? this.component.outerWidth(true) : this.element.outerWidth(false);
-			var left = offset.left,
-				top = offset.top;
-
-			this.picker.removeClass(
-				'datepicker-orient-top datepicker-orient-bottom '+
-				'datepicker-orient-right datepicker-orient-left'
-			);
-
-			if (this.o.orientation.x !== 'auto'){
-				this.picker.addClass('datepicker-orient-' + this.o.orientation.x);
-				if (this.o.orientation.x === 'right')
-					left -= calendarWidth - width;
-			}
-			// auto x orientation is best-placement: if it crosses a window
-			// edge, fudge it sideways
-			else {
-				// Default to left
-				this.picker.addClass('datepicker-orient-left');
-				if (offset.left < 0)
-					left -= offset.left - visualPadding;
-				else if (offset.left + calendarWidth > windowWidth)
-					left = windowWidth - calendarWidth - visualPadding;
-			}
-
-			// auto y orientation is best-situation: top or bottom, no fudging,
-			// decision based on which shows more of the calendar
-			var yorient = this.o.orientation.y,
-				top_overflow, bottom_overflow;
-			if (yorient === 'auto'){
-				top_overflow = -scrollTop + offset.top - calendarHeight;
-				bottom_overflow = scrollTop + windowHeight - (offset.top + height + calendarHeight);
-				if (Math.max(top_overflow, bottom_overflow) === bottom_overflow)
-					yorient = 'top';
-				else
-					yorient = 'bottom';
-			}
-			this.picker.addClass('datepicker-orient-' + yorient);
-			if (yorient === 'top')
-				top += height;
-			else
-				top -= calendarHeight + parseInt(this.picker.css('padding-top'));
-
-			this.picker.css({
-				top: top,
-				left: left,
-				zIndex: zIndex
-			});
-		},
-
-		_allow_update: true,
-		update: function(){
-			if (!this._allow_update)
-				return;
-
-			var oldDates = this.dates.copy(),
-				dates = [],
-				fromArgs = false;
-			if (arguments.length){
-				$.each(arguments, $.proxy(function(i, date){
-					if (date instanceof Date)
-						date = this._local_to_utc(date);
-					dates.push(date);
-				}, this));
-				fromArgs = true;
-			}
-			else {
-				dates = this.isInput
-						? this.element.val()
-						: this.element.data('date') || this.element.find('input').val();
-				if (dates && this.o.multidate)
-					dates = dates.split(this.o.multidateSeparator);
-				else
-					dates = [dates];
-				delete this.element.data().date;
-			}
-
-			dates = $.map(dates, $.proxy(function(date){
-				return DPGlobal.parseDate(date, this.o.format, this.o.language);
-			}, this));
-			dates = $.grep(dates, $.proxy(function(date){
-				return (
-					date < this.o.startDate ||
-					date > this.o.endDate ||
-					!date
-				);
-			}, this), true);
-			this.dates.replace(dates);
-
-			if (this.dates.length)
-				this.viewDate = new Date(this.dates.get(-1));
-			else if (this.viewDate < this.o.startDate)
-				this.viewDate = new Date(this.o.startDate);
-			else if (this.viewDate > this.o.endDate)
-				this.viewDate = new Date(this.o.endDate);
-
-			if (fromArgs){
-				// setting date by clicking
-				this.setValue();
-			}
-			else if (dates.length){
-				// setting date by typing
-				if (String(oldDates) !== String(this.dates))
-					this._trigger('changeDate');
-			}
-			if (!this.dates.length && oldDates.length)
-				this._trigger('clearDate');
-
-			this.fill();
-		},
-
-		fillDow: function(){
-			var dowCnt = this.o.weekStart,
-				html = '<tr>';
-			if (this.o.calendarWeeks){
-				var cell = '<th class="cw">&nbsp;</th>';
-				html += cell;
-				this.picker.find('.datepicker-days thead tr:first-child').prepend(cell);
-			}
-			while (dowCnt < this.o.weekStart + 7){
-				html += '<th class="dow">'+dates[this.o.language].daysMin[(dowCnt++)%7]+'</th>';
-			}
-			html += '</tr>';
-			this.picker.find('.datepicker-days thead').append(html);
-		},
-
-		fillMonths: function(){
-			var html = '',
-			i = 0;
-			while (i < 12){
-				html += '<span class="month">'+dates[this.o.language].monthsShort[i++]+'</span>';
-			}
-			this.picker.find('.datepicker-months td').html(html);
-		},
-
-		setRange: function(range){
-			if (!range || !range.length)
-				delete this.range;
-			else
-				this.range = $.map(range, function(d){
-					return d.valueOf();
-				});
-			this.fill();
-		},
-
-		getClassNames: function(date){
-			var cls = [],
-				year = this.viewDate.getUTCFullYear(),
-				month = this.viewDate.getUTCMonth(),
-				today = new Date();
-			if (date.getUTCFullYear() < year || (date.getUTCFullYear() === year && date.getUTCMonth() < month)){
-				cls.push('old');
-			}
-			else if (date.getUTCFullYear() > year || (date.getUTCFullYear() === year && date.getUTCMonth() > month)){
-				cls.push('new');
-			}
-			if (this.focusDate && date.valueOf() === this.focusDate.valueOf())
-				cls.push('focused');
-			// Compare internal UTC date with local today, not UTC today
-			if (this.o.todayHighlight &&
-				date.getUTCFullYear() === today.getFullYear() &&
-				date.getUTCMonth() === today.getMonth() &&
-				date.getUTCDate() === today.getDate()){
-				cls.push('today');
-			}
-			if (this.dates.contains(date) !== -1)
-				cls.push('active');
-			if (date.valueOf() < this.o.startDate || date.valueOf() > this.o.endDate ||
-				$.inArray(date.getUTCDay(), this.o.daysOfWeekDisabled) !== -1){
-				cls.push('disabled');
-			}
-			if (this.range){
-				if (date > this.range[0] && date < this.range[this.range.length-1]){
-					cls.push('range');
-				}
-				if ($.inArray(date.valueOf(), this.range) !== -1){
-					cls.push('selected');
-				}
-			}
-			return cls;
-		},
-
-		fill: function(){
-			var d = new Date(this.viewDate),
-				year = d.getUTCFullYear(),
-				month = d.getUTCMonth(),
-				startYear = this.o.startDate !== -Infinity ? this.o.startDate.getUTCFullYear() : -Infinity,
-				startMonth = this.o.startDate !== -Infinity ? this.o.startDate.getUTCMonth() : -Infinity,
-				endYear = this.o.endDate !== Infinity ? this.o.endDate.getUTCFullYear() : Infinity,
-				endMonth = this.o.endDate !== Infinity ? this.o.endDate.getUTCMonth() : Infinity,
-				todaytxt = dates[this.o.language].today || dates['en'].today || '',
-				cleartxt = dates[this.o.language].clear || dates['en'].clear || '',
-				tooltip;
-			this.picker.find('.datepicker-days thead th.datepicker-switch')
-						.text(dates[this.o.language].months[month]+' '+year);
-			this.picker.find('tfoot th.today')
-						.text(todaytxt)
-						.toggle(this.o.todayBtn !== false);
-			this.picker.find('tfoot th.clear')
-						.text(cleartxt)
-						.toggle(this.o.clearBtn !== false);
-			this.updateNavArrows();
-			this.fillMonths();
-			var prevMonth = UTCDate(year, month-1, 28),
-				day = DPGlobal.getDaysInMonth(prevMonth.getUTCFullYear(), prevMonth.getUTCMonth());
-			prevMonth.setUTCDate(day);
-			prevMonth.setUTCDate(day - (prevMonth.getUTCDay() - this.o.weekStart + 7)%7);
-			var nextMonth = new Date(prevMonth);
-			nextMonth.setUTCDate(nextMonth.getUTCDate() + 42);
-			nextMonth = nextMonth.valueOf();
-			var html = [];
-			var clsName;
-			while (prevMonth.valueOf() < nextMonth){
-				if (prevMonth.getUTCDay() === this.o.weekStart){
-					html.push('<tr>');
-					if (this.o.calendarWeeks){
-						// ISO 8601: First week contains first thursday.
-						// ISO also states week starts on Monday, but we can be more abstract here.
-						var
-							// Start of current week: based on weekstart/current date
-							ws = new Date(+prevMonth + (this.o.weekStart - prevMonth.getUTCDay() - 7) % 7 * 864e5),
-							// Thursday of this week
-							th = new Date(Number(ws) + (7 + 4 - ws.getUTCDay()) % 7 * 864e5),
-							// First Thursday of year, year from thursday
-							yth = new Date(Number(yth = UTCDate(th.getUTCFullYear(), 0, 1)) + (7 + 4 - yth.getUTCDay())%7*864e5),
-							// Calendar week: ms between thursdays, div ms per day, div 7 days
-							calWeek =  (th - yth) / 864e5 / 7 + 1;
-						html.push('<td class="cw">'+ calWeek +'</td>');
-
-					}
-				}
-				clsName = this.getClassNames(prevMonth);
-				clsName.push('day');
-
-				if (this.o.beforeShowDay !== $.noop){
-					var before = this.o.beforeShowDay(this._utc_to_local(prevMonth));
-					if (before === undefined)
-						before = {};
-					else if (typeof(before) === 'boolean')
-						before = {enabled: before};
-					else if (typeof(before) === 'string')
-						before = {classes: before};
-					if (before.enabled === false)
-						clsName.push('disabled');
-					if (before.classes)
-						clsName = clsName.concat(before.classes.split(/\s+/));
-					if (before.tooltip)
-						tooltip = before.tooltip;
-				}
-
-				clsName = $.unique(clsName);
-				html.push('<td class="'+clsName.join(' ')+'"' + (tooltip ? ' title="'+tooltip+'"' : '') + '>'+prevMonth.getUTCDate() + '</td>');
-				if (prevMonth.getUTCDay() === this.o.weekEnd){
-					html.push('</tr>');
-				}
-				prevMonth.setUTCDate(prevMonth.getUTCDate()+1);
-			}
-			this.picker.find('.datepicker-days tbody').empty().append(html.join(''));
-
-			var months = this.picker.find('.datepicker-months')
-						.find('th:eq(1)')
-							.text(year)
-							.end()
-						.find('span').removeClass('active');
-
-			$.each(this.dates, function(i, d){
-				if (d.getUTCFullYear() === year)
-					months.eq(d.getUTCMonth()).addClass('active');
-			});
-
-			if (year < startYear || year > endYear){
-				months.addClass('disabled');
-			}
-			if (year === startYear){
-				months.slice(0, startMonth).addClass('disabled');
-			}
-			if (year === endYear){
-				months.slice(endMonth+1).addClass('disabled');
-			}
-
-			html = '';
-			year = parseInt(year/10, 10) * 10;
-			var yearCont = this.picker.find('.datepicker-years')
-								.find('th:eq(1)')
-									.text(year + '-' + (year + 9))
-									.end()
-								.find('td');
-			year -= 1;
-			var years = $.map(this.dates, function(d){
-					return d.getUTCFullYear();
-				}),
-				classes;
-			for (var i = -1; i < 11; i++){
-				classes = ['year'];
-				if (i === -1)
-					classes.push('old');
-				else if (i === 10)
-					classes.push('new');
-				if ($.inArray(year, years) !== -1)
-					classes.push('active');
-				if (year < startYear || year > endYear)
-					classes.push('disabled');
-				html += '<span class="' + classes.join(' ') + '">'+year+'</span>';
-				year += 1;
-			}
-			yearCont.html(html);
-		},
-
-		updateNavArrows: function(){
-			if (!this._allow_update)
-				return;
-
-			var d = new Date(this.viewDate),
-				year = d.getUTCFullYear(),
-				month = d.getUTCMonth();
-			switch (this.viewMode){
-				case 0:
-					if (this.o.startDate !== -Infinity && year <= this.o.startDate.getUTCFullYear() && month <= this.o.startDate.getUTCMonth()){
-						this.picker.find('.prev').css({visibility: 'hidden'});
-					}
-					else {
-						this.picker.find('.prev').css({visibility: 'visible'});
-					}
-					if (this.o.endDate !== Infinity && year >= this.o.endDate.getUTCFullYear() && month >= this.o.endDate.getUTCMonth()){
-						this.picker.find('.next').css({visibility: 'hidden'});
-					}
-					else {
-						this.picker.find('.next').css({visibility: 'visible'});
-					}
-					break;
-				case 1:
-				case 2:
-					if (this.o.startDate !== -Infinity && year <= this.o.startDate.getUTCFullYear()){
-						this.picker.find('.prev').css({visibility: 'hidden'});
-					}
-					else {
-						this.picker.find('.prev').css({visibility: 'visible'});
-					}
-					if (this.o.endDate !== Infinity && year >= this.o.endDate.getUTCFullYear()){
-						this.picker.find('.next').css({visibility: 'hidden'});
-					}
-					else {
-						this.picker.find('.next').css({visibility: 'visible'});
-					}
-					break;
-			}
-		},
-
-		click: function(e){
-			e.preventDefault();
-			var target = $(e.target).closest('span, td, th'),
-				year, month, day;
-			if (target.length === 1){
-				switch (target[0].nodeName.toLowerCase()){
-					case 'th':
-						switch (target[0].className){
-							case 'datepicker-switch':
-								this.showMode(1);
-								break;
-							case 'prev':
-							case 'next':
-								var dir = DPGlobal.modes[this.viewMode].navStep * (target[0].className === 'prev' ? -1 : 1);
-								switch (this.viewMode){
-									case 0:
-										this.viewDate = this.moveMonth(this.viewDate, dir);
-										this._trigger('changeMonth', this.viewDate);
-										break;
-									case 1:
-									case 2:
-										this.viewDate = this.moveYear(this.viewDate, dir);
-										if (this.viewMode === 1)
-											this._trigger('changeYear', this.viewDate);
-										break;
-								}
-								this.fill();
-								break;
-							case 'today':
-								var date = new Date();
-								date = UTCDate(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
-
-								this.showMode(-2);
-								var which = this.o.todayBtn === 'linked' ? null : 'view';
-								this._setDate(date, which);
-								break;
-							case 'clear':
-								var element;
-								if (this.isInput)
-									element = this.element;
-								else if (this.component)
-									element = this.element.find('input');
-								if (element)
-									element.val("").change();
-								this.update();
-								this._trigger('changeDate');
-								if (this.o.autoclose)
-									this.hide();
-								break;
-						}
-						break;
-					case 'span':
-						if (!target.is('.disabled')){
-							this.viewDate.setUTCDate(1);
-							if (target.is('.month')){
-								day = 1;
-								month = target.parent().find('span').index(target);
-								year = this.viewDate.getUTCFullYear();
-								this.viewDate.setUTCMonth(month);
-								this._trigger('changeMonth', this.viewDate);
-								if (this.o.minViewMode === 1){
-									this._setDate(UTCDate(year, month, day));
-								}
-							}
-							else {
-								day = 1;
-								month = 0;
-								year = parseInt(target.text(), 10)||0;
-								this.viewDate.setUTCFullYear(year);
-								this._trigger('changeYear', this.viewDate);
-								if (this.o.minViewMode === 2){
-									this._setDate(UTCDate(year, month, day));
-								}
-							}
-							this.showMode(-1);
-							this.fill();
-						}
-						break;
-					case 'td':
-						if (target.is('.day') && !target.is('.disabled')){
-							day = parseInt(target.text(), 10)||1;
-							year = this.viewDate.getUTCFullYear();
-							month = this.viewDate.getUTCMonth();
-							if (target.is('.old')){
-								if (month === 0){
-									month = 11;
-									year -= 1;
-								}
-								else {
-									month -= 1;
-								}
-							}
-							else if (target.is('.new')){
-								if (month === 11){
-									month = 0;
-									year += 1;
-								}
-								else {
-									month += 1;
-								}
-							}
-							this._setDate(UTCDate(year, month, day));
-						}
-						break;
-				}
-			}
-			if (this.picker.is(':visible') && this._focused_from){
-				$(this._focused_from).focus();
-			}
-			delete this._focused_from;
-		},
-
-		_toggle_multidate: function(date){
-			var ix = this.dates.contains(date);
-			if (!date){
-				this.dates.clear();
-			}
-			else if (ix !== -1){
-				this.dates.remove(ix);
-			}
-			else {
-				this.dates.push(date);
-			}
-			if (typeof this.o.multidate === 'number')
-				while (this.dates.length > this.o.multidate)
-					this.dates.remove(0);
-		},
-
-		_setDate: function(date, which){
-			if (!which || which === 'date')
-				this._toggle_multidate(date && new Date(date));
-			if (!which || which  === 'view')
-				this.viewDate = date && new Date(date);
-
-			this.fill();
-			this.setValue();
-			this._trigger('changeDate');
-			var element;
-			if (this.isInput){
-				element = this.element;
-			}
-			else if (this.component){
-				element = this.element.find('input');
-			}
-			if (element){
-				element.change();
-			}
-			if (this.o.autoclose && (!which || which === 'date')){
-				this.hide();
-			}
-		},
-
-		moveMonth: function(date, dir){
-			if (!date)
-				return undefined;
-			if (!dir)
-				return date;
-			var new_date = new Date(date.valueOf()),
-				day = new_date.getUTCDate(),
-				month = new_date.getUTCMonth(),
-				mag = Math.abs(dir),
-				new_month, test;
-			dir = dir > 0 ? 1 : -1;
-			if (mag === 1){
-				test = dir === -1
-					// If going back one month, make sure month is not current month
-					// (eg, Mar 31 -> Feb 31 == Feb 28, not Mar 02)
-					? function(){
-						return new_date.getUTCMonth() === month;
-					}
-					// If going forward one month, make sure month is as expected
-					// (eg, Jan 31 -> Feb 31 == Feb 28, not Mar 02)
-					: function(){
-						return new_date.getUTCMonth() !== new_month;
-					};
-				new_month = month + dir;
-				new_date.setUTCMonth(new_month);
-				// Dec -> Jan (12) or Jan -> Dec (-1) -- limit expected date to 0-11
-				if (new_month < 0 || new_month > 11)
-					new_month = (new_month + 12) % 12;
-			}
-			else {
-				// For magnitudes >1, move one month at a time...
-				for (var i=0; i < mag; i++)
-					// ...which might decrease the day (eg, Jan 31 to Feb 28, etc)...
-					new_date = this.moveMonth(new_date, dir);
-				// ...then reset the day, keeping it in the new month
-				new_month = new_date.getUTCMonth();
-				new_date.setUTCDate(day);
-				test = function(){
-					return new_month !== new_date.getUTCMonth();
-				};
-			}
-			// Common date-resetting loop -- if date is beyond end of month, make it
-			// end of month
-			while (test()){
-				new_date.setUTCDate(--day);
-				new_date.setUTCMonth(new_month);
-			}
-			return new_date;
-		},
-
-		moveYear: function(date, dir){
-			return this.moveMonth(date, dir*12);
-		},
-
-		dateWithinRange: function(date){
-			return date >= this.o.startDate && date <= this.o.endDate;
-		},
-
-		keydown: function(e){
-			if (this.picker.is(':not(:visible)')){
-				if (e.keyCode === 27) // allow escape to hide and re-show picker
-					this.show();
-				return;
-			}
-			var dateChanged = false,
-				dir, newDate, newViewDate,
-				focusDate = this.focusDate || this.viewDate;
-			switch (e.keyCode){
-				case 27: // escape
-					if (this.focusDate){
-						this.focusDate = null;
-						this.viewDate = this.dates.get(-1) || this.viewDate;
-						this.fill();
-					}
-					else
-						this.hide();
-					e.preventDefault();
-					break;
-				case 37: // left
-				case 39: // right
-					if (!this.o.keyboardNavigation)
-						break;
-					dir = e.keyCode === 37 ? -1 : 1;
-					if (e.ctrlKey){
-						newDate = this.moveYear(this.dates.get(-1) || UTCToday(), dir);
-						newViewDate = this.moveYear(focusDate, dir);
-						this._trigger('changeYear', this.viewDate);
-					}
-					else if (e.shiftKey){
-						newDate = this.moveMonth(this.dates.get(-1) || UTCToday(), dir);
-						newViewDate = this.moveMonth(focusDate, dir);
-						this._trigger('changeMonth', this.viewDate);
-					}
-					else {
-						newDate = new Date(this.dates.get(-1) || UTCToday());
-						newDate.setUTCDate(newDate.getUTCDate() + dir);
-						newViewDate = new Date(focusDate);
-						newViewDate.setUTCDate(focusDate.getUTCDate() + dir);
-					}
-					if (this.dateWithinRange(newDate)){
-						this.focusDate = this.viewDate = newViewDate;
-						this.setValue();
-						this.fill();
-						e.preventDefault();
-					}
-					break;
-				case 38: // up
-				case 40: // down
-					if (!this.o.keyboardNavigation)
-						break;
-					dir = e.keyCode === 38 ? -1 : 1;
-					if (e.ctrlKey){
-						newDate = this.moveYear(this.dates.get(-1) || UTCToday(), dir);
-						newViewDate = this.moveYear(focusDate, dir);
-						this._trigger('changeYear', this.viewDate);
-					}
-					else if (e.shiftKey){
-						newDate = this.moveMonth(this.dates.get(-1) || UTCToday(), dir);
-						newViewDate = this.moveMonth(focusDate, dir);
-						this._trigger('changeMonth', this.viewDate);
-					}
-					else {
-						newDate = new Date(this.dates.get(-1) || UTCToday());
-						newDate.setUTCDate(newDate.getUTCDate() + dir * 7);
-						newViewDate = new Date(focusDate);
-						newViewDate.setUTCDate(focusDate.getUTCDate() + dir * 7);
-					}
-					if (this.dateWithinRange(newDate)){
-						this.focusDate = this.viewDate = newViewDate;
-						this.setValue();
-						this.fill();
-						e.preventDefault();
-					}
-					break;
-				case 32: // spacebar
-					// Spacebar is used in manually typing dates in some formats.
-					// As such, its behavior should not be hijacked.
-					break;
-				case 13: // enter
-					focusDate = this.focusDate || this.dates.get(-1) || this.viewDate;
-					this._toggle_multidate(focusDate);
-					dateChanged = true;
-					this.focusDate = null;
-					this.viewDate = this.dates.get(-1) || this.viewDate;
-					this.setValue();
-					this.fill();
-					if (this.picker.is(':visible')){
-						e.preventDefault();
-						if (this.o.autoclose)
-							this.hide();
-					}
-					break;
-				case 9: // tab
-					this.focusDate = null;
-					this.viewDate = this.dates.get(-1) || this.viewDate;
-					this.fill();
-					this.hide();
-					break;
-			}
-			if (dateChanged){
-				if (this.dates.length)
-					this._trigger('changeDate');
-				else
-					this._trigger('clearDate');
-				var element;
-				if (this.isInput){
-					element = this.element;
-				}
-				else if (this.component){
-					element = this.element.find('input');
-				}
-				if (element){
-					element.change();
-				}
-			}
-		},
-
-		showMode: function(dir){
-			if (dir){
-				this.viewMode = Math.max(this.o.minViewMode, Math.min(2, this.viewMode + dir));
-			}
-			this.picker
-				.find('>div')
-				.hide()
-				.filter('.datepicker-'+DPGlobal.modes[this.viewMode].clsName)
-					.css('display', 'block');
-			this.updateNavArrows();
-		}
-	};
-
-	var DateRangePicker = function(element, options){
-		this.element = $(element);
-		this.inputs = $.map(options.inputs, function(i){
-			return i.jquery ? i[0] : i;
-		});
-		delete options.inputs;
-
-		$(this.inputs)
-			.datepicker(options)
-			.bind('changeDate', $.proxy(this.dateUpdated, this));
-
-		this.pickers = $.map(this.inputs, function(i){
-			return $(i).data('datepicker');
-		});
-		this.updateDates();
-	};
-	DateRangePicker.prototype = {
-		updateDates: function(){
-			this.dates = $.map(this.pickers, function(i){
-				return i.getUTCDate();
-			});
-			this.updateRanges();
-		},
-		updateRanges: function(){
-			var range = $.map(this.dates, function(d){
-				return d.valueOf();
-			});
-			$.each(this.pickers, function(i, p){
-				p.setRange(range);
-			});
-		},
-		dateUpdated: function(e){
-			// `this.updating` is a workaround for preventing infinite recursion
-			// between `changeDate` triggering and `setUTCDate` calling.  Until
-			// there is a better mechanism.
-			if (this.updating)
-				return;
-			this.updating = true;
-
-			var dp = $(e.target).data('datepicker'),
-				new_date = dp.getUTCDate(),
-				i = $.inArray(e.target, this.inputs),
-				l = this.inputs.length;
-			if (i === -1)
-				return;
-
-			$.each(this.pickers, function(i, p){
-				if (!p.getUTCDate())
-					p.setUTCDate(new_date);
-			});
-
-			if (new_date < this.dates[i]){
-				// Date being moved earlier/left
-				while (i >= 0 && new_date < this.dates[i]){
-					this.pickers[i--].setUTCDate(new_date);
-				}
-			}
-			else if (new_date > this.dates[i]){
-				// Date being moved later/right
-				while (i < l && new_date > this.dates[i]){
-					this.pickers[i++].setUTCDate(new_date);
-				}
-			}
-			this.updateDates();
-
-			delete this.updating;
-		},
-		remove: function(){
-			$.map(this.pickers, function(p){ p.remove(); });
-			delete this.element.data().datepicker;
-		}
-	};
-
-	function opts_from_el(el, prefix){
-		// Derive options from element data-attrs
-		var data = $(el).data(),
-			out = {}, inkey,
-			replace = new RegExp('^' + prefix.toLowerCase() + '([A-Z])');
-		prefix = new RegExp('^' + prefix.toLowerCase());
-		function re_lower(_,a){
-			return a.toLowerCase();
-		}
-		for (var key in data)
-			if (prefix.test(key)){
-				inkey = key.replace(replace, re_lower);
-				out[inkey] = data[key];
-			}
-		return out;
-	}
-
-	function opts_from_locale(lang){
-		// Derive options from locale plugins
-		var out = {};
-		// Check if "de-DE" style date is available, if not language should
-		// fallback to 2 letter code eg "de"
-		if (!dates[lang]){
-			lang = lang.split('-')[0];
-			if (!dates[lang])
-				return;
-		}
-		var d = dates[lang];
-		$.each(locale_opts, function(i,k){
-			if (k in d)
-				out[k] = d[k];
-		});
-		return out;
-	}
-
-	var old = $.fn.datepicker;
-	$.fn.datepicker = function(option){
-		var args = Array.apply(null, arguments);
-		args.shift();
-		var internal_return;
-		this.each(function(){
-			var $this = $(this),
-				data = $this.data('datepicker'),
-				options = typeof option === 'object' && option;
-			if (!data){
-				var elopts = opts_from_el(this, 'date'),
-					// Preliminary otions
-					xopts = $.extend({}, defaults, elopts, options),
-					locopts = opts_from_locale(xopts.language),
-					// Options priority: js args, data-attrs, locales, defaults
-					opts = $.extend({}, defaults, locopts, elopts, options);
-				if ($this.is('.input-daterange') || opts.inputs){
-					var ropts = {
-						inputs: opts.inputs || $this.find('input').toArray()
-					};
-					$this.data('datepicker', (data = new DateRangePicker(this, $.extend(opts, ropts))));
-				}
-				else {
-					$this.data('datepicker', (data = new Datepicker(this, opts)));
-				}
-			}
-			if (typeof option === 'string' && typeof data[option] === 'function'){
-				internal_return = data[option].apply(data, args);
-				if (internal_return !== undefined)
-					return false;
-			}
-		});
-		if (internal_return !== undefined)
-			return internal_return;
-		else
-			return this;
-	};
-
-	var defaults = $.fn.datepicker.defaults = {
-		autoclose: false,
-		beforeShowDay: $.noop,
-		calendarWeeks: false,
-		clearBtn: false,
-		daysOfWeekDisabled: [],
-		endDate: Infinity,
-		forceParse: true,
-		format: 'mm/dd/yyyy',
-		keyboardNavigation: true,
-		language: 'en',
-		minViewMode: 0,
-		multidate: false,
-		multidateSeparator: ',',
-		orientation: "auto",
-		rtl: false,
-		startDate: -Infinity,
-		startView: 0,
-		todayBtn: false,
-		todayHighlight: false,
-		weekStart: 0
-	};
-	var locale_opts = $.fn.datepicker.locale_opts = [
-		'format',
-		'rtl',
-		'weekStart'
-	];
-	$.fn.datepicker.Constructor = Datepicker;
-	var dates = $.fn.datepicker.dates = {
-		en: {
-			days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-			daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-			daysMin: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
-			months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-			monthsShort: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-			today: "Today",
-			clear: "Clear"
-		}
-	};
-
-	var DPGlobal = {
-		modes: [
-			{
-				clsName: 'days',
-				navFnc: 'Month',
-				navStep: 1
-			},
-			{
-				clsName: 'months',
-				navFnc: 'FullYear',
-				navStep: 1
-			},
-			{
-				clsName: 'years',
-				navFnc: 'FullYear',
-				navStep: 10
-		}],
-		isLeapYear: function(year){
-			return (((year % 4 === 0) && (year % 100 !== 0)) || (year % 400 === 0));
-		},
-		getDaysInMonth: function(year, month){
-			return [31, (DPGlobal.isLeapYear(year) ? 29 : 28), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month];
-		},
-		validParts: /dd?|DD?|mm?|MM?|yy(?:yy)?/g,
-		nonpunctuation: /[^ -\/:-@\[\u3400-\u9fff-`{-~\t\n\r]+/g,
-		parseFormat: function(format){
-			// IE treats \0 as a string end in inputs (truncating the value),
-			// so it's a bad format delimiter, anyway
-			var separators = format.replace(this.validParts, '\0').split('\0'),
-				parts = format.match(this.validParts);
-			if (!separators || !separators.length || !parts || parts.length === 0){
-				throw new Error("Invalid date format.");
-			}
-			return {separators: separators, parts: parts};
-		},
-		parseDate: function(date, format, language){
-			if (!date)
-				return undefined;
-			if (date instanceof Date)
-				return date;
-			if (typeof format === 'string')
-				format = DPGlobal.parseFormat(format);
-			var part_re = /([\-+]\d+)([dmwy])/,
-				parts = date.match(/([\-+]\d+)([dmwy])/g),
-				part, dir, i;
-			if (/^[\-+]\d+[dmwy]([\s,]+[\-+]\d+[dmwy])*$/.test(date)){
-				date = new Date();
-				for (i=0; i < parts.length; i++){
-					part = part_re.exec(parts[i]);
-					dir = parseInt(part[1]);
-					switch (part[2]){
-						case 'd':
-							date.setUTCDate(date.getUTCDate() + dir);
-							break;
-						case 'm':
-							date = Datepicker.prototype.moveMonth.call(Datepicker.prototype, date, dir);
-							break;
-						case 'w':
-							date.setUTCDate(date.getUTCDate() + dir * 7);
-							break;
-						case 'y':
-							date = Datepicker.prototype.moveYear.call(Datepicker.prototype, date, dir);
-							break;
-					}
-				}
-				return UTCDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0);
-			}
-			parts = date && date.match(this.nonpunctuation) || [];
-			date = new Date();
-			var parsed = {},
-				setters_order = ['yyyy', 'yy', 'M', 'MM', 'm', 'mm', 'd', 'dd'],
-				setters_map = {
-					yyyy: function(d,v){
-						return d.setUTCFullYear(v);
-					},
-					yy: function(d,v){
-						return d.setUTCFullYear(2000+v);
-					},
-					m: function(d,v){
-						if (isNaN(d))
-							return d;
-						v -= 1;
-						while (v < 0) v += 12;
-						v %= 12;
-						d.setUTCMonth(v);
-						while (d.getUTCMonth() !== v)
-							d.setUTCDate(d.getUTCDate()-1);
-						return d;
-					},
-					d: function(d,v){
-						return d.setUTCDate(v);
-					}
-				},
-				val, filtered;
-			setters_map['M'] = setters_map['MM'] = setters_map['mm'] = setters_map['m'];
-			setters_map['dd'] = setters_map['d'];
-			date = UTCDate(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
-			var fparts = format.parts.slice();
-			// Remove noop parts
-			if (parts.length !== fparts.length){
-				fparts = $(fparts).filter(function(i,p){
-					return $.inArray(p, setters_order) !== -1;
-				}).toArray();
-			}
-			// Process remainder
-			function match_part(){
-				var m = this.slice(0, parts[i].length),
-					p = parts[i].slice(0, m.length);
-				return m === p;
-			}
-			if (parts.length === fparts.length){
-				var cnt;
-				for (i=0, cnt = fparts.length; i < cnt; i++){
-					val = parseInt(parts[i], 10);
-					part = fparts[i];
-					if (isNaN(val)){
-						switch (part){
-							case 'MM':
-								filtered = $(dates[language].months).filter(match_part);
-								val = $.inArray(filtered[0], dates[language].months) + 1;
-								break;
-							case 'M':
-								filtered = $(dates[language].monthsShort).filter(match_part);
-								val = $.inArray(filtered[0], dates[language].monthsShort) + 1;
-								break;
-						}
-					}
-					parsed[part] = val;
-				}
-				var _date, s;
-				for (i=0; i < setters_order.length; i++){
-					s = setters_order[i];
-					if (s in parsed && !isNaN(parsed[s])){
-						_date = new Date(date);
-						setters_map[s](_date, parsed[s]);
-						if (!isNaN(_date))
-							date = _date;
-					}
-				}
-			}
-			return date;
-		},
-		formatDate: function(date, format, language){
-			if (!date)
-				return '';
-			if (typeof format === 'string')
-				format = DPGlobal.parseFormat(format);
-			var val = {
-				d: date.getUTCDate(),
-				D: dates[language].daysShort[date.getUTCDay()],
-				DD: dates[language].days[date.getUTCDay()],
-				m: date.getUTCMonth() + 1,
-				M: dates[language].monthsShort[date.getUTCMonth()],
-				MM: dates[language].months[date.getUTCMonth()],
-				yy: date.getUTCFullYear().toString().substring(2),
-				yyyy: date.getUTCFullYear()
-			};
-			val.dd = (val.d < 10 ? '0' : '') + val.d;
-			val.mm = (val.m < 10 ? '0' : '') + val.m;
-			date = [];
-			var seps = $.extend([], format.separators);
-			for (var i=0, cnt = format.parts.length; i <= cnt; i++){
-				if (seps.length)
-					date.push(seps.shift());
-				date.push(val[format.parts[i]]);
-			}
-			return date.join('');
-		},
-		headTemplate: '<thead>'+
-							'<tr>'+
-								'<th class="prev">&laquo;</th>'+
-								'<th colspan="5" class="datepicker-switch"></th>'+
-								'<th class="next">&raquo;</th>'+
-							'</tr>'+
-						'</thead>',
-		contTemplate: '<tbody><tr><td colspan="7"></td></tr></tbody>',
-		footTemplate: '<tfoot>'+
-							'<tr>'+
-								'<th colspan="7" class="today"></th>'+
-							'</tr>'+
-							'<tr>'+
-								'<th colspan="7" class="clear"></th>'+
-							'</tr>'+
-						'</tfoot>'
-	};
-	DPGlobal.template = '<div class="datepicker">'+
-							'<div class="datepicker-days">'+
-								'<table class=" table-condensed">'+
-									DPGlobal.headTemplate+
-									'<tbody></tbody>'+
-									DPGlobal.footTemplate+
-								'</table>'+
-							'</div>'+
-							'<div class="datepicker-months">'+
-								'<table class="table-condensed">'+
-									DPGlobal.headTemplate+
-									DPGlobal.contTemplate+
-									DPGlobal.footTemplate+
-								'</table>'+
-							'</div>'+
-							'<div class="datepicker-years">'+
-								'<table class="table-condensed">'+
-									DPGlobal.headTemplate+
-									DPGlobal.contTemplate+
-									DPGlobal.footTemplate+
-								'</table>'+
-							'</div>'+
-						'</div>';
-
-	$.fn.datepicker.DPGlobal = DPGlobal;
-
-
-	/* DATEPICKER NO CONFLICT
-	* =================== */
-
-	$.fn.datepicker.noConflict = function(){
-		$.fn.datepicker = old;
-		return this;
-	};
-
-
-	/* DATEPICKER DATA-API
-	* ================== */
-
-	$(document).on(
-		'focus.datepicker.data-api click.datepicker.data-api',
-		'[data-provide="datepicker"]',
-		function(e){
-			var $this = $(this);
-			if ($this.data('datepicker'))
-				return;
-			e.preventDefault();
-			// component click requires us to explicitly show it
-			$this.datepicker('show');
-		}
-	);
-	$(function(){
-		$('[data-provide="datepicker-inline"]').datepicker();
-	});
-
-}(window.jQuery));
-/**
- * Arabic translation for bootstrap-datepicker
- * Mohammed Alshehri <alshehri866@gmail.com>
- */
-
-;(function($){
-    $.fn.datepicker.dates['ar'] = {
-        days: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"],
-        daysShort: ["أحد", "اثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة", "سبت", "أحد"],
-        daysMin: ["ح", "ن", "ث", "ع", "خ", "ج", "س", "ح"],
-        months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
-        monthsShort: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
-        today: "هذا اليوم",
-        rtl: true
-    };
-}(jQuery));
-// Azerbaijani
-;(function($){
-    $.fn.datepicker.dates['az'] = {
-        days: ["Bazar", "Bazar ertəsi", "Çərşənbə axşamı", "Çərşənbə", "Cümə axşamı", "Cümə", "Şənbə", "Bazar"],
-        daysShort: ["B.", "B.e", "Ç.a", "Ç.", "C.a", "C.", "Ş.", "B."],
-        daysMin: ["B.", "B.e", "Ç.a", "Ç.", "C.a", "C.", "Ş.", "B."],
-        months: ["Yanvar", "Fevral", "Mart", "Aprel", "May", "İyun", "İyul", "Avqust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"],
-        monthsShort: ["Yan", "Fev", "Mar", "Apr", "May", "İyun", "İyul", "Avq", "Sen", "Okt", "Noy", "Dek"],
-        today: "Bu gün",
-        weekStart: 1
-    };
-}(jQuery));
-/**
- * Bulgarian translation for bootstrap-datepicker
- * Apostol Apostolov <apostol.s.apostolov@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['bg'] = {
-		days: ["Неделя", "Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота", "Неделя"],
-		daysShort: ["Нед", "Пон", "Вто", "Сря", "Чет", "Пет", "Съб", "Нед"],
-		daysMin: ["Н", "П", "В", "С", "Ч", "П", "С", "Н"],
-		months: ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"],
-		monthsShort: ["Ян", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"],
-		today: "днес"
-	};
-}(jQuery));
-/**
- * Catalan translation for bootstrap-datepicker
- * J. Garcia <jogaco.en@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['ca'] = {
-		days: ["Diumenge", "Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres", "Dissabte", "Diumenge"],
-		daysShort: ["Diu",  "Dil", "Dmt", "Dmc", "Dij", "Div", "Dis", "Diu"],
-		daysMin: ["dg", "dl", "dt", "dc", "dj", "dv", "ds", "dg"],
-		months: ["Gener", "Febrer", "Març", "Abril", "Maig", "Juny", "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"],
-		monthsShort: ["Gen", "Feb", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Des"],
-		today: "Avui"
-	};
-}(jQuery));
-/**
- * Czech translation for bootstrap-datepicker
- * Matěj Koubík <matej@koubik.name>
- * Fixes by Michal Remiš <michal.remis@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['cs'] = {
-		days: ["Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"],
-		daysShort: ["Ned", "Pon", "Úte", "Stř", "Čtv", "Pát", "Sob", "Ned"],
-		daysMin: ["Ne", "Po", "Út", "St", "Čt", "Pá", "So", "Ne"],
-		months: ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"],
-		monthsShort: ["Led", "Úno", "Bře", "Dub", "Kvě", "Čer", "Čnc", "Srp", "Zář", "Říj", "Lis", "Pro"],
-		today: "Dnes"
-	};
-}(jQuery));
-/**
- * Welsh translation for bootstrap-datepicker
- * S. Morris <s.morris@bangor.ac.uk>
- */
-
-;(function($){
-	$.fn.datepicker.dates['cy'] = {
-		days: ["Sul", "Llun", "Mawrth", "Mercher", "Iau", "Gwener", "Sadwrn", "Sul"],
-		daysShort: ["Sul", "Llu", "Maw", "Mer", "Iau", "Gwe", "Sad", "Sul"],
-		daysMin: ["Su", "Ll", "Ma", "Me", "Ia", "Gwe", "Sa", "Su"],
-		months: ["Ionawr", "Chewfror", "Mawrth", "Ebrill", "Mai", "Mehefin", "Gorfennaf", "Awst", "Medi", "Hydref", "Tachwedd", "Rhagfyr"],
-		monthsShort: ["Ion", "Chw", "Maw", "Ebr", "Mai", "Meh", "Gor", "Aws", "Med", "Hyd", "Tach", "Rha"],
-		today: "Heddiw"
-	};
-}(jQuery));
-/**
- * Danish translation for bootstrap-datepicker
- * Christian Pedersen <http://github.com/chripede>
- */
-
-;(function($){
-	$.fn.datepicker.dates['da'] = {
-		days: ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"],
-		daysShort: ["Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"],
-		daysMin: ["Sø", "Ma", "Ti", "On", "To", "Fr", "Lø", "Sø"],
-		months: ["Januar", "Februar", "Marts", "April", "Maj", "Juni", "Juli", "August", "September", "Oktober", "November", "December"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
-		today: "I Dag",
-		clear: "Nulstil"
-	};
-}(jQuery));
-/**
- * German translation for bootstrap-datepicker
- * Sam Zurcher <sam@orelias.ch>
- */
-
-;(function($){
-	$.fn.datepicker.dates['de'] = {
-		days: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
-		daysShort: ["Son", "Mon", "Die", "Mit", "Don", "Fre", "Sam", "Son"],
-		daysMin: ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
-		months: ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
-		monthsShort: ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"],
-		today: "Heute",
-		clear: "Löschen",
-		weekStart: 1,
-		format: "dd.mm.yyyy"
-	};
-}(jQuery));
-/**
- * Greek translation for bootstrap-datepicker
- */
-
-;(function($){
-  $.fn.datepicker.dates['el'] = {
-    days: ["Κυριακή", "Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"],
-    daysShort: ["Κυρ", "Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"],
-    daysMin: ["Κυ", "Δε", "Τρ", "Τε", "Πε", "Πα", "Σα", "Κυ"],
-    months: ["Ιανουάριος", "Φεβρουάριος", "Μάρτιος", "Απρίλιος", "Μάιος", "Ιούνιος", "Ιούλιος", "Αύγουστος", "Σεπτέμβριος", "Οκτώβριος", "Νοέμβριος", "Δεκέμβριος"],
-    monthsShort: ["Ιαν", "Φεβ", "Μαρ", "Απρ", "Μάι", "Ιουν", "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ"],
-    today: "Σήμερα"
-  };
-}(jQuery));
-/**
- * Spanish translation for bootstrap-datepicker
- * Bruno Bonamin <bruno.bonamin@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['es'] = {
-		days: ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"],
-		daysShort: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
-		daysMin: ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"],
-		months: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
-		monthsShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
-		today: "Hoy"
-	};
-}(jQuery));
-/**
- * Estonian translation for bootstrap-datepicker
- * Ando Roots <https://github.com/anroots>
- * Fixes by Illimar Tambek <<https://github.com/ragulka>
- */
-
-;(function($){
-	$.fn.datepicker.dates['et'] = {
-		days: ["Pühapäev", "Esmaspäev", "Teisipäev", "Kolmapäev", "Neljapäev", "Reede", "Laupäev", "Pühapäev"],
-		daysShort: ["Pühap", "Esmasp", "Teisip", "Kolmap", "Neljap", "Reede", "Laup", "Pühap"],
-		daysMin: ["P", "E", "T", "K", "N", "R", "L", "P"],
-		months: ["Jaanuar", "Veebruar", "Märts", "Aprill", "Mai", "Juuni", "Juuli", "August", "September", "Oktoober", "November", "Detsember"],
-		monthsShort: ["Jaan", "Veebr", "Märts", "Apr", "Mai", "Juuni", "Juuli", "Aug", "Sept", "Okt", "Nov", "Dets"],
-		today: "Täna",
-		clear: "Tühjenda",
-		weekStart: 1,
-		format: "dd.mm.yyyy"
-	};
-}(jQuery));
-/**
- * Persian translation for bootstrap-datepicker
- * Mostafa Rokooie <mostafa.rokooie@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['fa'] = {
-		days: ["یک‌شنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه", "شنبه", "یک‌شنبه"],
-		daysShort: ["یک", "دو", "سه", "چهار", "پنج", "جمعه", "شنبه", "یک"],
-		daysMin: ["ی", "د", "س", "چ", "پ", "ج", "ش", "ی"],
-		months: ["ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"],
-		monthsShort: ["ژان", "فور", "مار", "آور", "مه", "ژون", "ژوی", "اوت", "سپت", "اکت", "نوا", "دسا"],
-		today: "امروز",
-		clear: "پاک کن",
-		weekStart: 1,
-		format: "yyyy/mm/dd"
-	};
-}(jQuery));
-/**
- * Finnish translation for bootstrap-datepicker
- * Jaakko Salonen <https://github.com/jsalonen>
- */
-
-;(function($){
-	$.fn.datepicker.dates['fi'] = {
-		days: ["sunnuntai", "maanantai", "tiistai", "keskiviikko", "torstai", "perjantai", "lauantai", "sunnuntai"],
-		daysShort: ["sun", "maa", "tii", "kes", "tor", "per", "lau", "sun"],
-		daysMin: ["su", "ma", "ti", "ke", "to", "pe", "la", "su"],
-		months: ["tammikuu", "helmikuu", "maaliskuu", "huhtikuu", "toukokuu", "kesäkuu", "heinäkuu", "elokuu", "syyskuu", "lokakuu", "marraskuu", "joulukuu"],
-		monthsShort: ["tam", "hel", "maa", "huh", "tou", "kes", "hei", "elo", "syy", "lok", "mar", "jou"],
-		today: "tänään",
-		weekStart: 1,
-		format: "d.m.yyyy"
-	};
-}(jQuery));
-/**
- * French translation for bootstrap-datepicker
- * Nico Mollet <nico.mollet@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['fr'] = {
-		days: ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"],
-		daysShort: ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"],
-		daysMin: ["D", "L", "Ma", "Me", "J", "V", "S", "D"],
-		months: ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"],
-		monthsShort: ["Jan", "Fév", "Mar", "Avr", "Mai", "Jui", "Jul", "Aou", "Sep", "Oct", "Nov", "Déc"],
-		today: "Aujourd'hui",
-		clear: "Effacer",
-		weekStart: 1,
-		format: "dd/mm/yyyy"
-	};
-}(jQuery));
-;(function($){
-	$.fn.datepicker.dates['gl'] = {
-		days: ["Domingo", "Luns", "Martes", "Mércores", "Xoves", "Venres", "Sábado", "Domingo"],
-		daysShort: ["Dom", "Lun", "Mar", "Mér", "Xov", "Ven", "Sáb", "Dom"],
-		daysMin: ["Do", "Lu", "Ma", "Me", "Xo", "Ve", "Sa", "Do"],
-		months: ["Xaneiro", "Febreiro", "Marzo", "Abril", "Maio", "Xuño", "Xullo", "Agosto", "Setembro", "Outubro", "Novembro", "Decembro"],
-		monthsShort: ["Xan", "Feb", "Mar", "Abr", "Mai", "Xun", "Xul", "Ago", "Sep", "Out", "Nov", "Dec"],
-		today: "Hoxe",
-		clear: "Limpar"
-	};
-}(jQuery));
-/**
- * Hebrew translation for bootstrap-datepicker
- * Sagie Maoz <sagie@maoz.info>
- */
-
-;(function($){
-  $.fn.datepicker.dates['he'] = {
-      days: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"],
-      daysShort: ["א", "ב", "ג", "ד", "ה", "ו", "ש", "א"],
-      daysMin: ["א", "ב", "ג", "ד", "ה", "ו", "ש", "א"],
-      months: ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"],
-      monthsShort: ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ", "יול", "אוג", "ספט", "אוק", "נוב", "דצמ"],
-      today: "היום",
-      rtl: true
-  };
-}(jQuery));
-/**
- * Croatian localisation
- */
-
-;(function($){
-	$.fn.datepicker.dates['hr'] = {
-		days: ["Nedjelja", "Ponedjeljak", "Utorak", "Srijeda", "Četvrtak", "Petak", "Subota", "Nedjelja"],
-		daysShort: ["Ned", "Pon", "Uto", "Sri", "Čet", "Pet", "Sub", "Ned"],
-		daysMin: ["Ne", "Po", "Ut", "Sr", "Če", "Pe", "Su", "Ne"],
-		months: ["Siječanj", "Veljača", "Ožujak", "Travanj", "Svibanj", "Lipanj", "Srpanj", "Kolovoz", "Rujan", "Listopad", "Studeni", "Prosinac"],
-		monthsShort: ["Sij", "Velj", "Ožu", "Tra", "Svi", "Lip", "Srp", "Kol", "Ruj", "Lis", "Stu", "Pro"],
-		today: "Danas"
-	};
-}(jQuery));
-/**
- * Hungarian translation for bootstrap-datepicker
- * Sotus László <lacisan@gmail.com>
- */
-
-;(function($){
-  $.fn.datepicker.dates['hu'] = {
-		days: ["Vasárnap", "Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"],
-		daysShort: ["Vas", "Hét", "Ked", "Sze", "Csü", "Pén", "Szo", "Vas"],
-		daysMin: ["Va", "Hé", "Ke", "Sz", "Cs", "Pé", "Sz", "Va"],
-		months: ["Január", "Február", "Március", "Április", "Május", "Június", "Július", "Augusztus", "Szeptember", "Október", "November", "December"],
-		monthsShort: ["Jan", "Feb", "Már", "Ápr", "Máj", "Jún", "Júl", "Aug", "Sze", "Okt", "Nov", "Dec"],
-		today: "Ma",
-		weekStart: 1,
-		format: "yyyy.mm.dd"
-	};
-}(jQuery));
-/**
- * Bahasa translation for bootstrap-datepicker
- * Azwar Akbar <azwar.akbar@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['id'] = {
-		days: ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"],
-		daysShort: ["Mgu", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Mgu"],
-		daysMin: ["Mg", "Sn", "Sl", "Ra", "Ka", "Ju", "Sa", "Mg"],
-		months: ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"],
-		today: "Hari Ini",
-		clear: "Kosongkan"
-	};
-}(jQuery));
-/**
- * Icelandic translation for bootstrap-datepicker
- * Hinrik Örn Sigurðsson <hinrik.sig@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['is'] = {
-		days: ["Sunnudagur", "Mánudagur", "Þriðjudagur", "Miðvikudagur", "Fimmtudagur", "Föstudagur", "Laugardagur", "Sunnudagur"],
-		daysShort: ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau", "Sun"],
-		daysMin: ["Su", "Má", "Þr", "Mi", "Fi", "Fö", "La", "Su"],
-		months: ["Janúar", "Febrúar", "Mars", "Apríl", "Maí", "Júní", "Júlí", "Ágúst", "September", "Október", "Nóvember", "Desember"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maí", "Jún", "Júl", "Ágú", "Sep", "Okt", "Nóv", "Des"],
-		today: "Í Dag"
-	};
-}(jQuery));
-/**
- * Italian translation for bootstrap-datepicker
- * Enrico Rubboli <rubboli@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['it'] = {
-		days: ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"],
-		daysShort: ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"],
-		daysMin: ["Do", "Lu", "Ma", "Me", "Gi", "Ve", "Sa", "Do"],
-		months: ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"],
-		monthsShort: ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"],
-		today: "Oggi",
-		clear: "Cancella",
-		weekStart: 1,
-		format: "dd/mm/yyyy"
-	};
-}(jQuery));
-/**
- * Japanese translation for bootstrap-datepicker
- * Norio Suzuki <https://github.com/suzuki/>
- */
-
-;(function($){
-	$.fn.datepicker.dates['ja'] = {
-		days: ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜", "日曜"],
-		daysShort: ["日", "月", "火", "水", "木", "金", "土", "日"],
-		daysMin: ["日", "月", "火", "水", "木", "金", "土", "日"],
-		months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
-		monthsShort: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
-		today: "今日",
-		format: "yyyy/mm/dd"
-	};
-}(jQuery));
-/**
- * Georgian translation for bootstrap-datepicker
- * Levan Melikishvili <levani0101@yahoo.com>
- */
-
-;(function($){
-    $.fn.datepicker.dates['ka'] = {
-        days: ["კვირა", "ორშაბათი", "სამშაბათი", "ოთხშაბათი", "ხუთშაბათი", "პარასკევი", "შაბათი", "კვირა"],
-        daysShort: ["კვი", "ორშ", "სამ", "ოთხ", "ხუთ", "პარ", "შაბ", "კვი"],
-        daysMin: ["კვ", "ორ", "სა", "ოთ", "ხუ", "პა", "შა", "კვ"],
-        months: ["იანვარი", "თებერვალი", "მარტი", "აპრილი", "მაისი", "ივნისი", "ივლისი", "აგვისტო", "სექტემბერი", "ოქტომები", "ნოემბერი", "დეკემბერი"],
-        monthsShort: ["იან", "თებ", "მარ", "აპრ", "მაი", "ივნ", "ივლ", "აგვ", "სექ", "ოქტ", "ნოე", "დეკ"],
-        today: "დღეს",
-        clear: "გასუფთავება",
-        weekStart: 1,
-        format: "dd.mm.yyyy"
-    };
-}(jQuery));
-/**
- * Kazakh translation for bootstrap-datepicker
- * Yerzhan Tolekov <era.tolekov@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['kk'] = {
-		days: ["Жексенбі", "Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"],
-		daysShort: ["Жек", "Дүй", "Сей", "Сәр", "Бей", "Жұм", "Сен", "Жек"],
-		daysMin: ["Жк", "Дс", "Сс", "Ср", "Бс", "Жм", "Сн", "Жк"],
-		months: ["Қаңтар", "Ақпан", "Наурыз", "Сәуір", "Мамыр", "Маусым", "Шілде", "Тамыз", "Қыркүйек", "Қазан", "Қараша", "Желтоқсан"],
-		monthsShort: ["Қаң", "Ақп", "Нау", "Сәу", "Мамыр", "Мау", "Шлд", "Тмз", "Қыр", "Қзн", "Қар", "Жел"],
-		today: "Бүгін",
-		weekStart: 1
-	};
-}(jQuery));
-/**
- * Korean translation for bootstrap-datepicker
- * Gu Youn <http://github.com/guyoun>
- */
-
-;(function($){
-	$.fn.datepicker.dates['kr'] = {
-		days: ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"],
-		daysShort: ["일", "월", "화", "수", "목", "금", "토", "일"],
-		daysMin: ["일", "월", "화", "수", "목", "금", "토", "일"],
-		months: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
-		monthsShort: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"]
-	};
-}(jQuery));
-/**
- * Lithuanian translation for bootstrap-datepicker
- * Šarūnas Gliebus <ssharunas@yahoo.co.uk>
- */
-
-
-;(function($){
-    $.fn.datepicker.dates['lt'] = {
-        days: ["Sekmadienis", "Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis", "Šeštadienis", "Sekmadienis"],
-        daysShort: ["S", "Pr", "A", "T", "K", "Pn", "Š", "S"],
-        daysMin: ["Sk", "Pr", "An", "Tr", "Ke", "Pn", "Št", "Sk"],
-        months: ["Sausis", "Vasaris", "Kovas", "Balandis", "Gegužė", "Birželis", "Liepa", "Rugpjūtis", "Rugsėjis", "Spalis", "Lapkritis", "Gruodis"],
-        monthsShort: ["Sau", "Vas", "Kov", "Bal", "Geg", "Bir", "Lie", "Rugp", "Rugs", "Spa", "Lap", "Gru"],
-        today: "Šiandien",
-        weekStart: 1
-    };
-}(jQuery));
-/**
- * Latvian translation for bootstrap-datepicker
- * Artis Avotins <artis@apit.lv>
- */
-
-
-;(function($){
-    $.fn.datepicker.dates['lv'] = {
-        days: ["Svētdiena", "Pirmdiena", "Otrdiena", "Trešdiena", "Ceturtdiena", "Piektdiena", "Sestdiena", "Svētdiena"],
-        daysShort: ["Sv", "P", "O", "T", "C", "Pk", "S", "Sv"],
-        daysMin: ["Sv", "Pr", "Ot", "Tr", "Ce", "Pk", "Se", "Sv"],
-        months: ["Janvāris", "Februāris", "Marts", "Aprīlis", "Maijs", "Jūnijs", "Jūlijs", "Augusts", "Septembris", "Oktobris", "Novembris", "Decembris"],
-        monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mai", "Jūn", "Jūl", "Aug", "Sep", "Okt", "Nov", "Dec"],
-        today: "Šodien",
-        weekStart: 1
-    };
-}(jQuery));
-/**
- * Macedonian translation for bootstrap-datepicker
- * Marko Aleksic <psybaron@gmail.com>
- */
-
-;(function($){
-    $.fn.datepicker.dates['mk'] = {
-        days: ["Недела", "Понеделник", "Вторник", "Среда", "Четврток", "Петок", "Сабота", "Недела"],
-        daysShort: ["Нед", "Пон", "Вто", "Сре", "Чет", "Пет", "Саб", "Нед"],
-        daysMin: ["Не", "По", "Вт", "Ср", "Че", "Пе", "Са", "Не"],
-        months: ["Јануари", "Февруари", "Март", "Април", "Мај", "Јуни", "Јули", "Август", "Септември", "Октомври", "Ноември", "Декември"],
-        monthsShort: ["Јан", "Фев", "Мар", "Апр", "Мај", "Јун", "Јул", "Авг", "Сеп", "Окт", "Ное", "Дек"],
-        today: "Денес",
-        format: "dd.mm.yyyy"
-    };
-}(jQuery));
-/**
- * Malay translation for bootstrap-datepicker
- * Ateman Faiz <noorulfaiz@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['ms'] = {
-		days: ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu", "Ahad"],
-		daysShort: ["Aha", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab", "Aha"],
-		daysMin: ["Ah", "Is", "Se", "Ra", "Kh", "Ju", "Sa", "Ah"],
-		months: ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ogo", "Sep", "Okt", "Nov", "Dis"],
-		today: "Hari Ini"
-	};
-}(jQuery));
-/**
- * Norwegian (bokmål) translation for bootstrap-datepicker
- * Fredrik Sundmyhr <http://github.com/fsundmyhr>
- */
-
-;(function($){
-	$.fn.datepicker.dates['nb'] = {
-		days: ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"],
-		daysShort: ["Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"],
-		daysMin: ["Sø", "Ma", "Ti", "On", "To", "Fr", "Lø", "Sø"],
-		months: ["Januar", "Februar", "Mars", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Desember"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Des"],
-		today: "I Dag"
-	};
-}(jQuery));
-/**
- * Belgium-Dutch translation for bootstrap-datepicker
- * Julien Poulin <poulin_julien@hotmail.com>
- */
-
-;(function($){
-  $.fn.datepicker.dates['nl-BE'] = {
-    days: ["Zondag", "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"],
-    daysShort: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
-    daysMin: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
-    months: ["Januari", "Februari", "Maart", "April", "Mei", "Juni", "Juli", "Augustus", "September", "Oktober", "November", "December"],
-    monthsShort: ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
-    today: "Vandaag",
-    clear: "Leegmaken",
-    weekStart: 1,
-    format: "dd/mm/yyyy"
-  };
-}(jQuery));
-/**
- * Dutch translation for bootstrap-datepicker
- * Reinier Goltstein <mrgoltstein@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['nl'] = {
-		days: ["Zondag", "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"],
-		daysShort: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
-		daysMin: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
-		months: ["Januari", "Februari", "Maart", "April", "Mei", "Juni", "Juli", "Augustus", "September", "Oktober", "November", "December"],
-		monthsShort: ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
-		today: "Vandaag"
-	};
-}(jQuery));
-/**
- *  Norwegian translation for bootstrap-datepicker
- **/
-
-;(function($){
-  $.fn.datepicker.dates['no'] = {
-    days: ['Søndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag'],
-    daysShort: ['Søn','Man','Tir','Ons','Tor','Fre','Lør'],
-    daysMin: ['Sø','Ma','Ti','On','To','Fr','Lø'],
-    months: ['Januar','Februar','Mars','April','Mai','Juni','Juli','August','September','Oktober','November','Desember'],
-    monthsShort: ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'],
-    today: 'I dag',
-    clear: 'Nullstill',
-    weekStart: 1,
-    format: 'dd.mm.yyyy'
-  };
-}(jQuery));
-/**
- * Polish translation for bootstrap-datepicker
- * Robert <rtpm@gazeta.pl>
- */
-
-;(function($){
-        $.fn.datepicker.dates['pl'] = {
-                days: ["Niedziela", "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"],
-                daysShort: ["Nie", "Pn", "Wt", "Śr", "Czw", "Pt", "So", "Nie"],
-                daysMin: ["N", "Pn", "Wt", "Śr", "Cz", "Pt", "So", "N"],
-                months: ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"],
-                monthsShort: ["Sty", "Lu", "Mar", "Kw", "Maj", "Cze", "Lip", "Sie", "Wrz", "Pa", "Lis", "Gru"],
-                today: "Dzisiaj",
-                weekStart: 1
-        };
-}(jQuery));
-/**
- * Brazilian translation for bootstrap-datepicker
- * Cauan Cabral <cauan@radig.com.br>
- */
-
-;(function($){
-	$.fn.datepicker.dates['pt-BR'] = {
-		days: ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
-		daysShort: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
-		daysMin: ["Do", "Se", "Te", "Qu", "Qu", "Se", "Sa", "Do"],
-		months: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
-		monthsShort: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
-		today: "Hoje",
-		clear: "Limpar"
-	};
-}(jQuery));
-/**
- * Portuguese translation for bootstrap-datepicker
- * Original code: Cauan Cabral <cauan@radig.com.br>
- * Tiago Melo <tiago.blackcode@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['pt'] = {
-		days: ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
-		daysShort: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
-		daysMin: ["Do", "Se", "Te", "Qu", "Qu", "Se", "Sa", "Do"],
-		months: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
-		monthsShort: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
-		today: "Hoje",
-		clear: "Limpar"
-	};
-}(jQuery));
-/**
- * Romanian translation for bootstrap-datepicker
- * Cristian Vasile <cristi.mie@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['ro'] = {
-		days: ["Duminică", "Luni", "Marţi", "Miercuri", "Joi", "Vineri", "Sâmbătă", "Duminică"],
-		daysShort: ["Dum", "Lun", "Mar", "Mie", "Joi", "Vin", "Sâm", "Dum"],
-		daysMin: ["Du", "Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"],
-		months: ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie", "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"],
-		monthsShort: ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun", "Iul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-		today: "Astăzi",
-		clear: "Șterge",
-		weekStart: 1
-	};
-}(jQuery));
-/**
- * Serbian latin translation for bootstrap-datepicker
- * Bojan Milosavlević <milboj@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['rs-latin'] = {
-		days: ["Nedelja","Ponedeljak", "Utorak", "Sreda", "Četvrtak", "Petak", "Subota", "Nedelja"],
-		daysShort: ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub", "Ned"],
-		daysMin: ["N", "Po", "U", "Sr", "Č", "Pe", "Su", "N"],
-		months: ["Januar", "Februar", "Mart", "April", "Maj", "Jun", "Jul", "Avgust", "Septembar", "Oktobar", "Novembar", "Decembar"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"],
-		today: "Danas"
-	};
-}(jQuery));
-/**
- * Serbian cyrillic translation for bootstrap-datepicker
- * Bojan Milosavlević <milboj@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['rs'] = {
-		days: ["Недеља","Понедељак", "Уторак", "Среда", "Четвртак", "Петак", "Субота", "Недеља"],
-		daysShort: ["Нед", "Пон", "Уто", "Сре", "Чет", "Пет", "Суб", "Нед"],
-		daysMin: ["Н", "По", "У", "Ср", "Ч", "Пе", "Су", "Н"],
-		months: ["Јануар", "Фебруар", "Март", "Април", "Мај", "Јун", "Јул", "Август", "Септембар", "Октобар", "Новембар", "Децембар"],
-		monthsShort: ["Јан", "Феб", "Мар", "Апр", "Мај", "Јун", "Јул", "Авг", "Сеп", "Окт", "Нов", "Дец"],
-		today: "Данас"
-	};
-}(jQuery));
-/**
- * Russian translation for bootstrap-datepicker
- * Victor Taranenko <darwin@snowdale.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['ru'] = {
-		days: ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"],
-		daysShort: ["Вск", "Пнд", "Втр", "Срд", "Чтв", "Птн", "Суб", "Вск"],
-		daysMin: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
-		months: ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
-		monthsShort: ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
-		today: "Сегодня",
-		weekStart: 1
-	};
-}(jQuery));
-/**
- * Slovak translation for bootstrap-datepicker
- * Marek Lichtner <marek@licht.sk>
- * Fixes by Michal Remiš <michal.remis@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates["sk"] = {
-		days: ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota", "Nedeľa"],
-		daysShort: ["Ned", "Pon", "Uto", "Str", "Štv", "Pia", "Sob", "Ned"],
-		daysMin: ["Ne", "Po", "Ut", "St", "Št", "Pia", "So", "Ne"],
-		months: ["Január", "Február", "Marec", "Apríl", "Máj", "Jún", "Júl", "August", "September", "Október", "November", "December"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Máj", "Jún", "Júl", "Aug", "Sep", "Okt", "Nov", "Dec"],
-		today: "Dnes"
-	};
-}(jQuery));
-/**
- * Slovene translation for bootstrap-datepicker
- * Gregor Rudolf <gregor.rudolf@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['sl'] = {
-		days: ["Nedelja", "Ponedeljek", "Torek", "Sreda", "Četrtek", "Petek", "Sobota", "Nedelja"],
-		daysShort: ["Ned", "Pon", "Tor", "Sre", "Čet", "Pet", "Sob", "Ned"],
-		daysMin: ["Ne", "Po", "To", "Sr", "Če", "Pe", "So", "Ne"],
-		months: ["Januar", "Februar", "Marec", "April", "Maj", "Junij", "Julij", "Avgust", "September", "Oktober", "November", "December"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"],
-		today: "Danes"
-	};
-}(jQuery));
-/**
- * Albanian translation for bootstrap-datepicker
- * Tomor Pupovci <http://www.github.com/ttomor>
- */
-
-;(function($){
-	$.fn.datepicker.dates['sq'] = {
-		days: ["E Diel", "E Hënë", "E martē", "E mërkurë", "E Enjte", "E Premte", "E Shtunë", "E Diel"],
-		daysShort: ["Die", "Hën", "Mar", "Mër", "Enj", "Pre", "Shtu", "Die"],
-		daysMin: ["Di", "Hë", "Ma", "Më", "En", "Pr", "Sht", "Di"],
-		months: ["Janar", "Shkurt", "Mars", "Prill", "Maj", "Qershor", "Korrik", "Gusht", "Shtator", "Tetor", "Nëntor", "Dhjetor"],
-		monthsShort: ["Jan", "Shk", "Mar", "Pri", "Maj", "Qer", "Korr", "Gu", "Sht", "Tet", "Nën", "Dhjet"],
-		today: "Sot"
-	};
-}(jQuery));
-
-/**
- * Swedish translation for bootstrap-datepicker
- * Patrik Ragnarsson <patrik@starkast.net>
- */
-
-;(function($){
-	$.fn.datepicker.dates['sv'] = {
-		days: ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"],
-		daysShort: ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"],
-		daysMin: ["Sö", "Må", "Ti", "On", "To", "Fr", "Lö", "Sö"],
-		months: ["Januari", "Februari", "Mars", "April", "Maj", "Juni", "Juli", "Augusti", "September", "Oktober", "November", "December"],
-		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
-		today: "Idag",
-		format: "yyyy-mm-dd",
-		weekStart: 1
-	};
-}(jQuery));
-/**
- * Swahili translation for bootstrap-datepicker
- * Edwin Mugendi <https://github.com/edwinmugendi>
- * Source: http://scriptsource.org/cms/scripts/page.php?item_id=entry_detail&uid=xnfaqyzcku
- */
-
-;(function($){
-    $.fn.datepicker.dates['sw'] = {
-        days: ["Jumapili", "Jumatatu", "Jumanne", "Jumatano", "Alhamisi", "Ijumaa", "Jumamosi", "Jumapili"],
-        daysShort: ["J2", "J3", "J4", "J5", "Alh", "Ij", "J1", "J2"],
-        daysMin: ["2", "3", "4", "5", "A", "I", "1", "2"],
-        months: ["Januari", "Februari", "Machi", "Aprili", "Mei", "Juni", "Julai", "Agosti", "Septemba", "Oktoba", "Novemba", "Desemba"],
-        monthsShort: ["Jan", "Feb", "Mac", "Apr", "Mei", "Jun", "Jul", "Ago", "Sep", "Okt", "Nov", "Des"],
-        today: "Leo"
-    };
-}(jQuery));
-/**
- * Thai translation for bootstrap-datepicker
- * Suchau Jiraprapot <seroz24@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['th'] = {
-		days: ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัส", "ศุกร์", "เสาร์", "อาทิตย์"],
-		daysShort: ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"],
-		daysMin: ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"],
-		months: ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"],
-		monthsShort: ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."],
-		today: "วันนี้"
-	};
-}(jQuery));
-/**
- * Turkish translation for bootstrap-datepicker
- * Serkan Algur <kaisercrazy_2@hotmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['tr'] = {
-		days: ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
-		daysShort: ["Pz", "Pzt", "Sal", "Çrş", "Prş", "Cu", "Cts", "Pz"],
-		daysMin: ["Pz", "Pzt", "Sa", "Çr", "Pr", "Cu", "Ct", "Pz"],
-		months: ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"],
-		monthsShort: ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"],
-		today: "Bugün",
-		format: "dd.mm.yyyy"
-	};
-}(jQuery));
-
-/**
- * Ukrainian translation for bootstrap-datepicker
- * Igor Polynets
- */
-
-;(function($){
-	$.fn.datepicker.dates['ua'] = {
-		days: ["Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятница", "Субота", "Неділя"],
-		daysShort: ["Нед", "Пнд", "Втр", "Срд", "Чтв", "Птн", "Суб", "Нед"],
-		daysMin: ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"],
-		months: ["Cічень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"],
-		monthsShort: ["Січ", "Лют", "Бер", "Кві", "Тра", "Чер", "Лип", "Сер", "Вер", "Жов", "Лис", "Гру"],
-		today: "Сьогодні",
-		weekStart: 1
-	};
-}(jQuery));
-/**
- * Ukrainian translation for bootstrap-datepicker
- * Andrey Vityuk <andrey [dot] vityuk [at] gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['uk'] = {
-		days: ["Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"],
-		daysShort: ["Нед", "Пнд", "Втр", "Срд", "Чтв", "Птн", "Суб", "Нед"],
-		daysMin: ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"],
-		months: ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"],
-		monthsShort: ["Січ", "Лют", "Бер", "Кві", "Тра", "Чер", "Лип", "Сер", "Вер", "Жов", "Лис", "Гру"],
-		today: "Сьогодні"
-	};
-}(jQuery));
-/**
- * Vietnamese translation for bootstrap-datepicker
- * An Vo <https://github.com/anvoz/>
- */
-
-;(function($){
-	$.fn.datepicker.dates['vi'] = {
-		days: ["Chủ nhật", "Thứ hai", "Thứ ba", "Thứ tư", "Thứ năm", "Thứ sáu", "Thứ bảy", "Chủ nhật"],
-		daysShort: ["CN", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "CN"],
-		daysMin: ["CN", "T2", "T3", "T4", "T5", "T6", "T7", "CN"],
-		months: ["Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6", "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12"],
-		monthsShort: ["Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12"],
-		today: "Hôm nay",
-		clear: "Xóa",
-		format: "dd/mm/yyyy"
-	};
-}(jQuery));
-/**
- * Simplified Chinese translation for bootstrap-datepicker
- * Yuan Cheung <advanimal@gmail.com>
- */
-
-;(function($){
-	$.fn.datepicker.dates['zh-CN'] = {
-		days: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
-		daysShort: ["周日", "周一", "周二", "周三", "周四", "周五", "周六", "周日"],
-		daysMin:  ["日", "一", "二", "三", "四", "五", "六", "日"],
-		months: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
-		monthsShort: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
-		today: "今日",
-		format: "yyyy年mm月dd日",
-		weekStart: 1
-	};
-}(jQuery));
-/**
- * Traditional Chinese translation for bootstrap-datepicker
- * Rung-Sheng Jang <daniel@i-trend.co.cc>
- * FrankWu  <frankwu100@gmail.com> Fix more appropriate use of Traditional Chinese habit
- */
-
-;(function($){
-	$.fn.datepicker.dates['zh-TW'] = {
-		days: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
-		daysShort: ["週日", "週一", "週二", "週三", "週四", "週五", "週六", "週日"],
-		daysMin:  ["日", "一", "二", "三", "四", "五", "六", "日"],
-		months: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
-		monthsShort: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
-		today: "今天",
-		format: "yyyy年mm月dd日",
-		weekStart: 1
-	};
-}(jQuery));
-
-
-/**
- * sifter.js
- * Copyright (c) 2013 Brian Reavis & contributors
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
- * file except in compliance with the License. You may obtain a copy of the License at:
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
- * ANY KIND, either express or implied. See the License for the specific language
- * governing permissions and limitations under the License.
- *
- * @author Brian Reavis <brian@thirdroute.com>
- */
-
-
-(function(root, factory) {
-	if (typeof define === 'function' && define.amd) {
-		define('sifter', factory);
-	} else if (typeof exports === 'object') {
-		module.exports = factory();
-	} else {
-		root.Sifter = factory();
-	}
-}(this, function() {
-
-	/**
-	 * Textually searches arrays and hashes of objects
-	 * by property (or multiple properties). Designed
-	 * specifically for autocomplete.
-	 *
-	 * @constructor
-	 * @param {array|object} items
-	 * @param {object} items
-	 */
-	var Sifter = function(items, settings) {
-		this.items = items;
-		this.settings = settings || {diacritics: true};
-	};
-
-	/**
-	 * Splits a search string into an array of individual
-	 * regexps to be used to match results.
-	 *
-	 * @param {string} query
-	 * @returns {array}
-	 */
-	Sifter.prototype.tokenize = function(query) {
-		query = trim(String(query || '').toLowerCase());
-		if (!query || !query.length) return [];
-
-		var i, n, regex, letter;
-		var tokens = [];
-		var words = query.split(/ +/);
-
-		for (i = 0, n = words.length; i < n; i++) {
-			regex = escape_regex(words[i]);
-			if (this.settings.diacritics) {
-				for (letter in DIACRITICS) {
-					if (DIACRITICS.hasOwnProperty(letter)) {
-						regex = regex.replace(new RegExp(letter, 'g'), DIACRITICS[letter]);
-					}
-				}
-			}
-			tokens.push({
-				string : words[i],
-				regex  : new RegExp(regex, 'i')
-			});
-		}
-
-		return tokens;
-	};
-
-	/**
-	 * Iterates over arrays and hashes.
-	 *
-	 * ```
-	 * this.iterator(this.items, function(item, id) {
-	 *    // invoked for each item
-	 * });
-	 * ```
-	 *
-	 * @param {array|object} object
-	 */
-	Sifter.prototype.iterator = function(object, callback) {
-		var iterator;
-		if (is_array(object)) {
-			iterator = Array.prototype.forEach || function(callback) {
-				for (var i = 0, n = this.length; i < n; i++) {
-					callback(this[i], i, this);
-				}
-			};
-		} else {
-			iterator = function(callback) {
-				for (var key in this) {
-					if (this.hasOwnProperty(key)) {
-						callback(this[key], key, this);
-					}
-				}
-			};
-		}
-
-		iterator.apply(object, [callback]);
-	};
-
-	/**
-	 * Returns a function to be used to score individual results.
-	 *
-	 * Good matches will have a higher score than poor matches.
-	 * If an item is not a match, 0 will be returned by the function.
-	 *
-	 * @param {object|string} search
-	 * @param {object} options (optional)
-	 * @returns {function}
-	 */
-	Sifter.prototype.getScoreFunction = function(search, options) {
-		var self, fields, tokens, token_count;
-
-		self        = this;
-		search      = self.prepareSearch(search, options);
-		tokens      = search.tokens;
-		fields      = search.options.fields;
-		token_count = tokens.length;
-
-		/**
-		 * Calculates how close of a match the
-		 * given value is against a search token.
-		 *
-		 * @param {mixed} value
-		 * @param {object} token
-		 * @return {number}
-		 */
-		var scoreValue = function(value, token) {
-			var score, pos;
-
-			if (!value) return 0;
-			value = String(value || '');
-			pos = value.search(token.regex);
-			if (pos === -1) return 0;
-			score = token.string.length / value.length;
-			if (pos === 0) score += 0.5;
-			return score;
-		};
-
-		/**
-		 * Calculates the score of an object
-		 * against the search query.
-		 *
-		 * @param {object} token
-		 * @param {object} data
-		 * @return {number}
-		 */
-		var scoreObject = (function() {
-			var field_count = fields.length;
-			if (!field_count) {
-				return function() { return 0; };
-			}
-			if (field_count === 1) {
-				return function(token, data) {
-					return scoreValue(data[fields[0]], token);
-				};
-			}
-			return function(token, data) {
-				for (var i = 0, sum = 0; i < field_count; i++) {
-					sum += scoreValue(data[fields[i]], token);
-				}
-				return sum / field_count;
-			};
-		})();
-
-		if (!token_count) {
-			return function() { return 0; };
-		}
-		if (token_count === 1) {
-			return function(data) {
-				return scoreObject(tokens[0], data);
-			};
-		}
-
-		if (search.options.conjunction === 'and') {
-			return function(data) {
-				var score;
-				for (var i = 0, sum = 0; i < token_count; i++) {
-					score = scoreObject(tokens[i], data);
-					if (score <= 0) return 0;
-					sum += score;
-				}
-				return sum / token_count;
-			};
-		} else {
-			return function(data) {
-				for (var i = 0, sum = 0; i < token_count; i++) {
-					sum += scoreObject(tokens[i], data);
-				}
-				return sum / token_count;
-			};
-		}
-	};
-
-	/**
-	 * Returns a function that can be used to compare two
-	 * results, for sorting purposes. If no sorting should
-	 * be performed, `null` will be returned.
-	 *
-	 * @param {string|object} search
-	 * @param {object} options
-	 * @return function(a,b)
-	 */
-	Sifter.prototype.getSortFunction = function(search, options) {
-		var i, n, self, field, fields, fields_count, multiplier, multipliers, get_field, implicit_score, sort;
-
-		self   = this;
-		search = self.prepareSearch(search, options);
-		sort   = (!search.query && options.sort_empty) || options.sort;
-
-		/**
-		 * Fetches the specified sort field value
-		 * from a search result item.
-		 *
-		 * @param  {string} name
-		 * @param  {object} result
-		 * @return {mixed}
-		 */
-		get_field  = function(name, result) {
-			if (name === '$score') return result.score;
-			return self.items[result.id][name];
-		};
-
-		// parse options
-		fields = [];
-		if (sort) {
-			for (i = 0, n = sort.length; i < n; i++) {
-				if (search.query || sort[i].field !== '$score') {
-					fields.push(sort[i]);
-				}
-			}
-		}
-
-		// the "$score" field is implied to be the primary
-		// sort field, unless it's manually specified
-		if (search.query) {
-			implicit_score = true;
-			for (i = 0, n = fields.length; i < n; i++) {
-				if (fields[i].field === '$score') {
-					implicit_score = false;
-					break;
-				}
-			}
-			if (implicit_score) {
-				fields.unshift({field: '$score', direction: 'desc'});
-			}
-		} else {
-			for (i = 0, n = fields.length; i < n; i++) {
-				if (fields[i].field === '$score') {
-					fields.splice(i, 1);
-					break;
-				}
-			}
-		}
-
-		multipliers = [];
-		for (i = 0, n = fields.length; i < n; i++) {
-			multipliers.push(fields[i].direction === 'desc' ? -1 : 1);
-		}
-
-		// build function
-		fields_count = fields.length;
-		if (!fields_count) {
-			return null;
-		} else if (fields_count === 1) {
-			field = fields[0].field;
-			multiplier = multipliers[0];
-			return function(a, b) {
-				return multiplier * cmp(
-					get_field(field, a),
-					get_field(field, b)
-				);
-			};
-		} else {
-			return function(a, b) {
-				var i, result, a_value, b_value, field;
-				for (i = 0; i < fields_count; i++) {
-					field = fields[i].field;
-					result = multipliers[i] * cmp(
-						get_field(field, a),
-						get_field(field, b)
-					);
-					if (result) return result;
-				}
-				return 0;
-			};
-		}
-	};
-
-	/**
-	 * Parses a search query and returns an object
-	 * with tokens and fields ready to be populated
-	 * with results.
-	 *
-	 * @param {string} query
-	 * @param {object} options
-	 * @returns {object}
-	 */
-	Sifter.prototype.prepareSearch = function(query, options) {
-		if (typeof query === 'object') return query;
-
-		options = extend({}, options);
-
-		var option_fields     = options.fields;
-		var option_sort       = options.sort;
-		var option_sort_empty = options.sort_empty;
-
-		if (option_fields && !is_array(option_fields)) options.fields = [option_fields];
-		if (option_sort && !is_array(option_sort)) options.sort = [option_sort];
-		if (option_sort_empty && !is_array(option_sort_empty)) options.sort_empty = [option_sort_empty];
-
-		return {
-			options : options,
-			query   : String(query || '').toLowerCase(),
-			tokens  : this.tokenize(query),
-			total   : 0,
-			items   : []
-		};
-	};
-
-	/**
-	 * Searches through all items and returns a sorted array of matches.
-	 *
-	 * The `options` parameter can contain:
-	 *
-	 *   - fields {string|array}
-	 *   - sort {array}
-	 *   - score {function}
-	 *   - filter {bool}
-	 *   - limit {integer}
-	 *
-	 * Returns an object containing:
-	 *
-	 *   - options {object}
-	 *   - query {string}
-	 *   - tokens {array}
-	 *   - total {int}
-	 *   - items {array}
-	 *
-	 * @param {string} query
-	 * @param {object} options
-	 * @returns {object}
-	 */
-	Sifter.prototype.search = function(query, options) {
-		var self = this, value, score, search, calculateScore;
-		var fn_sort;
-		var fn_score;
-
-		search  = this.prepareSearch(query, options);
-		options = search.options;
-		query   = search.query;
-
-		// generate result scoring function
-		fn_score = options.score || self.getScoreFunction(search);
-
-		// perform search and sort
-		if (query.length) {
-			self.iterator(self.items, function(item, id) {
-				score = fn_score(item);
-				if (options.filter === false || score > 0) {
-					search.items.push({'score': score, 'id': id});
-				}
-			});
-		} else {
-			self.iterator(self.items, function(item, id) {
-				search.items.push({'score': 1, 'id': id});
-			});
-		}
-
-		fn_sort = self.getSortFunction(search, options);
-		if (fn_sort) search.items.sort(fn_sort);
-
-		// apply limits
-		search.total = search.items.length;
-		if (typeof options.limit === 'number') {
-			search.items = search.items.slice(0, options.limit);
-		}
-
-		return search;
-	};
-
-	// utilities
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-	var cmp = function(a, b) {
-		if (typeof a === 'number' && typeof b === 'number') {
-			return a > b ? 1 : (a < b ? -1 : 0);
-		}
-		a = String(a || '').toLowerCase();
-		b = String(b || '').toLowerCase();
-		if (a > b) return 1;
-		if (b > a) return -1;
-		return 0;
-	};
-
-	var extend = function(a, b) {
-		var i, n, k, object;
-		for (i = 1, n = arguments.length; i < n; i++) {
-			object = arguments[i];
-			if (!object) continue;
-			for (k in object) {
-				if (object.hasOwnProperty(k)) {
-					a[k] = object[k];
-				}
-			}
-		}
-		return a;
-	};
-
-	var trim = function(str) {
-		return (str + '').replace(/^\s+|\s+$|/g, '');
-	};
-
-	var escape_regex = function(str) {
-		return (str + '').replace(/([.?*+^$[\]\\(){}|-])/g, '\\$1');
-	};
-
-	var is_array = Array.isArray || ($ && $.isArray) || function(object) {
-		return Object.prototype.toString.call(object) === '[object Array]';
-	};
-
-	var DIACRITICS = {
-		'a': '[aÀÁÂÃÄÅàáâãäåĀā]',
-		'c': '[cÇçćĆčČ]',
-		'd': '[dđĐďĎ]',
-		'e': '[eÈÉÊËèéêëěĚĒē]',
-		'i': '[iÌÍÎÏìíîïĪī]',
-		'n': '[nÑñňŇ]',
-		'o': '[oÒÓÔÕÕÖØòóôõöøŌō]',
-		'r': '[rřŘ]',
-		's': '[sŠš]',
-		't': '[tťŤ]',
-		'u': '[uÙÚÛÜùúûüůŮŪū]',
-		'y': '[yŸÿýÝ]',
-		'z': '[zŽž]'
-	};
-
-	// export
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-	return Sifter;
-}));
-
-
-
-/**
- * microplugin.js
- * Copyright (c) 2013 Brian Reavis & contributors
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
- * file except in compliance with the License. You may obtain a copy of the License at:
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
- * ANY KIND, either express or implied. See the License for the specific language
- * governing permissions and limitations under the License.
- *
- * @author Brian Reavis <brian@thirdroute.com>
- */
-
-(function(root, factory) {
-	if (typeof define === 'function' && define.amd) {
-		define('microplugin', factory);
-	} else if (typeof exports === 'object') {
-		module.exports = factory();
-	} else {
-		root.MicroPlugin = factory();
-	}
-}(this, function() {
-	var MicroPlugin = {};
-
-	MicroPlugin.mixin = function(Interface) {
-		Interface.plugins = {};
-
-		/**
-		 * Initializes the listed plugins (with options).
-		 * Acceptable formats:
-		 *
-		 * List (without options):
-		 *   ['a', 'b', 'c']
-		 *
-		 * List (with options):
-		 *   [{'name': 'a', options: {}}, {'name': 'b', options: {}}]
-		 *
-		 * Hash (with options):
-		 *   {'a': { ... }, 'b': { ... }, 'c': { ... }}
-		 *
-		 * @param {mixed} plugins
-		 */
-		Interface.prototype.initializePlugins = function(plugins) {
-			var i, n, key;
-			var self  = this;
-			var queue = [];
-
-			self.plugins = {
-				names     : [],
-				settings  : {},
-				requested : {},
-				loaded    : {}
-			};
-
-			if (utils.isArray(plugins)) {
-				for (i = 0, n = plugins.length; i < n; i++) {
-					if (typeof plugins[i] === 'string') {
-						queue.push(plugins[i]);
-					} else {
-						self.plugins.settings[plugins[i].name] = plugins[i].options;
-						queue.push(plugins[i].name);
-					}
-				}
-			} else if (plugins) {
-				for (key in plugins) {
-					if (plugins.hasOwnProperty(key)) {
-						self.plugins.settings[key] = plugins[key];
-						queue.push(key);
-					}
-				}
-			}
-
-			while (queue.length) {
-				self.require(queue.shift());
-			}
-		};
-
-		Interface.prototype.loadPlugin = function(name) {
-			var self    = this;
-			var plugins = self.plugins;
-			var plugin  = Interface.plugins[name];
-
-			if (!Interface.plugins.hasOwnProperty(name)) {
-				throw new Error('Unable to find "' +  name + '" plugin');
-			}
-
-			plugins.requested[name] = true;
-			plugins.loaded[name] = plugin.fn.apply(self, [self.plugins.settings[name] || {}]);
-			plugins.names.push(name);
-		};
-
-		/**
-		 * Initializes a plugin.
-		 *
-		 * @param {string} name
-		 */
-		Interface.prototype.require = function(name) {
-			var self = this;
-			var plugins = self.plugins;
-
-			if (!self.plugins.loaded.hasOwnProperty(name)) {
-				if (plugins.requested[name]) {
-					throw new Error('Plugin has circular dependency ("' + name + '")');
-				}
-				self.loadPlugin(name);
-			}
-
-			return plugins.loaded[name];
-		};
-
-		/**
-		 * Registers a plugin.
-		 *
-		 * @param {string} name
-		 * @param {function} fn
-		 */
-		Interface.define = function(name, fn) {
-			Interface.plugins[name] = {
-				'name' : name,
-				'fn'   : fn
-			};
-		};
-	};
-
-	var utils = {
-		isArray: Array.isArray || function(vArg) {
-			return Object.prototype.toString.call(vArg) === '[object Array]';
-		}
-	};
-
-	return MicroPlugin;
-}));
-
-/**
- * selectize.js (v0.11.2)
- * Copyright (c) 2013 Brian Reavis & contributors
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
- * file except in compliance with the License. You may obtain a copy of the License at:
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
- * ANY KIND, either express or implied. See the License for the specific language
- * governing permissions and limitations under the License.
- *
- * @author Brian Reavis <brian@thirdroute.com>
- */
-
-/*jshint curly:false */
-/*jshint browser:true */
-
-(function(root, factory) {
-	if (typeof define === 'function' && define.amd) {
-		define('selectize', ['jquery','sifter','microplugin'], factory);
-	} else if (typeof exports === 'object') {
-		module.exports = factory(require('jquery'), require('sifter'), require('microplugin'));
-	} else {
-		root.Selectize = factory(root.jQuery, root.Sifter, root.MicroPlugin);
-	}
-}(this, function($, Sifter, MicroPlugin) {
-	'use strict';
-
-	var highlight = function($element, pattern) {
-		if (typeof pattern === 'string' && !pattern.length) return;
-		var regex = (typeof pattern === 'string') ? new RegExp(pattern, 'i') : pattern;
-	
-		var highlight = function(node) {
-			var skip = 0;
-			if (node.nodeType === 3) {
-				var pos = node.data.search(regex);
-				if (pos >= 0 && node.data.length > 0) {
-					var match = node.data.match(regex);
-					var spannode = document.createElement('span');
-					spannode.className = 'highlight';
-					var middlebit = node.splitText(pos);
-					var endbit = middlebit.splitText(match[0].length);
-					var middleclone = middlebit.cloneNode(true);
-					spannode.appendChild(middleclone);
-					middlebit.parentNode.replaceChild(spannode, middlebit);
-					skip = 1;
-				}
-			} else if (node.nodeType === 1 && node.childNodes && !/(script|style)/i.test(node.tagName)) {
-				for (var i = 0; i < node.childNodes.length; ++i) {
-					i += highlight(node.childNodes[i]);
-				}
-			}
-			return skip;
-		};
-	
-		return $element.each(function() {
-			highlight(this);
-		});
-	};
-	
-	var MicroEvent = function() {};
-	MicroEvent.prototype = {
-		on: function(event, fct){
-			this._events = this._events || {};
-			this._events[event] = this._events[event] || [];
-			this._events[event].push(fct);
-		},
-		off: function(event, fct){
-			var n = arguments.length;
-			if (n === 0) return delete this._events;
-			if (n === 1) return delete this._events[event];
-	
-			this._events = this._events || {};
-			if (event in this._events === false) return;
-			this._events[event].splice(this._events[event].indexOf(fct), 1);
-		},
-		trigger: function(event /* , args... */){
-			this._events = this._events || {};
-			if (event in this._events === false) return;
-			for (var i = 0; i < this._events[event].length; i++){
-				this._events[event][i].apply(this, Array.prototype.slice.call(arguments, 1));
-			}
-		}
-	};
-	
-	/**
-	 * Mixin will delegate all MicroEvent.js function in the destination object.
-	 *
-	 * - MicroEvent.mixin(Foobar) will make Foobar able to use MicroEvent
-	 *
-	 * @param {object} the object which will support MicroEvent
-	 */
-	MicroEvent.mixin = function(destObject){
-		var props = ['on', 'off', 'trigger'];
-		for (var i = 0; i < props.length; i++){
-			destObject.prototype[props[i]] = MicroEvent.prototype[props[i]];
-		}
-	};
-	
-	var IS_MAC        = /Mac/.test(navigator.userAgent);
-	
-	var KEY_A         = 65;
-	var KEY_COMMA     = 188;
-	var KEY_RETURN    = 13;
-	var KEY_ESC       = 27;
-	var KEY_LEFT      = 37;
-	var KEY_UP        = 38;
-	var KEY_P         = 80;
-	var KEY_RIGHT     = 39;
-	var KEY_DOWN      = 40;
-	var KEY_N         = 78;
-	var KEY_BACKSPACE = 8;
-	var KEY_DELETE    = 46;
-	var KEY_SHIFT     = 16;
-	var KEY_CMD       = IS_MAC ? 91 : 17;
-	var KEY_CTRL      = IS_MAC ? 18 : 17;
-	var KEY_TAB       = 9;
-	
-	var TAG_SELECT    = 1;
-	var TAG_INPUT     = 2;
-	
-	
-	var isset = function(object) {
-		return typeof object !== 'undefined';
-	};
-	
-	/**
-	 * Converts a scalar to its best string representation
-	 * for hash keys and HTML attribute values.
-	 *
-	 * Transformations:
-	 *   'str'     -> 'str'
-	 *   null      -> ''
-	 *   undefined -> ''
-	 *   true      -> '1'
-	 *   false     -> '0'
-	 *   0         -> '0'
-	 *   1         -> '1'
-	 *
-	 * @param {string} value
-	 * @returns {string|null}
-	 */
-	var hash_key = function(value) {
-		if (typeof value === 'undefined' || value === null) return null;
-		if (typeof value === 'boolean') return value ? '1' : '0';
-		return value + '';
-	};
-	
-	/**
-	 * Escapes a string for use within HTML.
-	 *
-	 * @param {string} str
-	 * @returns {string}
-	 */
-	var escape_html = function(str) {
-		return (str + '')
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;');
-	};
-	
-	/**
-	 * Escapes "$" characters in replacement strings.
-	 *
-	 * @param {string} str
-	 * @returns {string}
-	 */
-	var escape_replace = function(str) {
-		return (str + '').replace(/\$/g, '$$$$');
-	};
-	
-	var hook = {};
-	
-	/**
-	 * Wraps `method` on `self` so that `fn`
-	 * is invoked before the original method.
-	 *
-	 * @param {object} self
-	 * @param {string} method
-	 * @param {function} fn
-	 */
-	hook.before = function(self, method, fn) {
-		var original = self[method];
-		self[method] = function() {
-			fn.apply(self, arguments);
-			return original.apply(self, arguments);
-		};
-	};
-	
-	/**
-	 * Wraps `method` on `self` so that `fn`
-	 * is invoked after the original method.
-	 *
-	 * @param {object} self
-	 * @param {string} method
-	 * @param {function} fn
-	 */
-	hook.after = function(self, method, fn) {
-		var original = self[method];
-		self[method] = function() {
-			var result = original.apply(self, arguments);
-			fn.apply(self, arguments);
-			return result;
-		};
-	};
-	
-	/**
-	 * Builds a hash table out of an array of
-	 * objects, using the specified `key` within
-	 * each object.
-	 *
-	 * @param {string} key
-	 * @param {mixed} objects
-	 */
-	var build_hash_table = function(key, objects) {
-		if (!$.isArray(objects)) return objects;
-		var i, n, table = {};
-		for (i = 0, n = objects.length; i < n; i++) {
-			if (objects[i].hasOwnProperty(key)) {
-				table[objects[i][key]] = objects[i];
-			}
-		}
-		return table;
-	};
-	
-	/**
-	 * Wraps `fn` so that it can only be invoked once.
-	 *
-	 * @param {function} fn
-	 * @returns {function}
-	 */
-	var once = function(fn) {
-		var called = false;
-		return function() {
-			if (called) return;
-			called = true;
-			fn.apply(this, arguments);
-		};
-	};
-	
-	/**
-	 * Wraps `fn` so that it can only be called once
-	 * every `delay` milliseconds (invoked on the falling edge).
-	 *
-	 * @param {function} fn
-	 * @param {int} delay
-	 * @returns {function}
-	 */
-	var debounce = function(fn, delay) {
-		var timeout;
-		return function() {
-			var self = this;
-			var args = arguments;
-			window.clearTimeout(timeout);
-			timeout = window.setTimeout(function() {
-				fn.apply(self, args);
-			}, delay);
-		};
-	};
-	
-	/**
-	 * Debounce all fired events types listed in `types`
-	 * while executing the provided `fn`.
-	 *
-	 * @param {object} self
-	 * @param {array} types
-	 * @param {function} fn
-	 */
-	var debounce_events = function(self, types, fn) {
-		var type;
-		var trigger = self.trigger;
-		var event_args = {};
-	
-		// override trigger method
-		self.trigger = function() {
-			var type = arguments[0];
-			if (types.indexOf(type) !== -1) {
-				event_args[type] = arguments;
-			} else {
-				return trigger.apply(self, arguments);
-			}
-		};
-	
-		// invoke provided function
-		fn.apply(self, []);
-		self.trigger = trigger;
-	
-		// trigger queued events
-		for (type in event_args) {
-			if (event_args.hasOwnProperty(type)) {
-				trigger.apply(self, event_args[type]);
-			}
-		}
-	};
-	
-	/**
-	 * A workaround for http://bugs.jquery.com/ticket/6696
-	 *
-	 * @param {object} $parent - Parent element to listen on.
-	 * @param {string} event - Event name.
-	 * @param {string} selector - Descendant selector to filter by.
-	 * @param {function} fn - Event handler.
-	 */
-	var watchChildEvent = function($parent, event, selector, fn) {
-		$parent.on(event, selector, function(e) {
-			var child = e.target;
-			while (child && child.parentNode !== $parent[0]) {
-				child = child.parentNode;
-			}
-			e.currentTarget = child;
-			return fn.apply(this, [e]);
-		});
-	};
-	
-	/**
-	 * Determines the current selection within a text input control.
-	 * Returns an object containing:
-	 *   - start
-	 *   - length
-	 *
-	 * @param {object} input
-	 * @returns {object}
-	 */
-	var getSelection = function(input) {
-		var result = {};
-		if ('selectionStart' in input) {
-			result.start = input.selectionStart;
-			result.length = input.selectionEnd - result.start;
-		} else if (document.selection) {
-			input.focus();
-			var sel = document.selection.createRange();
-			var selLen = document.selection.createRange().text.length;
-			sel.moveStart('character', -input.value.length);
-			result.start = sel.text.length - selLen;
-			result.length = selLen;
-		}
-		return result;
-	};
-	
-	/**
-	 * Copies CSS properties from one element to another.
-	 *
-	 * @param {object} $from
-	 * @param {object} $to
-	 * @param {array} properties
-	 */
-	var transferStyles = function($from, $to, properties) {
-		var i, n, styles = {};
-		if (properties) {
-			for (i = 0, n = properties.length; i < n; i++) {
-				styles[properties[i]] = $from.css(properties[i]);
-			}
-		} else {
-			styles = $from.css();
-		}
-		$to.css(styles);
-	};
-	
-	/**
-	 * Measures the width of a string within a
-	 * parent element (in pixels).
-	 *
-	 * @param {string} str
-	 * @param {object} $parent
-	 * @returns {int}
-	 */
-	var measureString = function(str, $parent) {
-		if (!str) {
-			return 0;
-		}
-	
-		var $test = $('<test>').css({
-			position: 'absolute',
-			top: -99999,
-			left: -99999,
-			width: 'auto',
-			padding: 0,
-			whiteSpace: 'pre'
-		}).text(str).appendTo('body');
-	
-		transferStyles($parent, $test, [
-			'letterSpacing',
-			'fontSize',
-			'fontFamily',
-			'fontWeight',
-			'textTransform'
-		]);
-	
-		var width = $test.width();
-		$test.remove();
-	
-		return width;
-	};
-	
-	/**
-	 * Sets up an input to grow horizontally as the user
-	 * types. If the value is changed manually, you can
-	 * trigger the "update" handler to resize:
-	 *
-	 * $input.trigger('update');
-	 *
-	 * @param {object} $input
-	 */
-	var autoGrow = function($input) {
-		var currentWidth = null;
-	
-		var update = function(e, options) {
-			var value, keyCode, printable, placeholder, width;
-			var shift, character, selection;
-			e = e || window.event || {};
-			options = options || {};
-	
-			if (e.metaKey || e.altKey) return;
-			if (!options.force && $input.data('grow') === false) return;
-	
-			value = $input.val();
-			if (e.type && e.type.toLowerCase() === 'keydown') {
-				keyCode = e.keyCode;
-				printable = (
-					(keyCode >= 97 && keyCode <= 122) || // a-z
-					(keyCode >= 65 && keyCode <= 90)  || // A-Z
-					(keyCode >= 48 && keyCode <= 57)  || // 0-9
-					keyCode === 32 // space
-				);
-	
-				if (keyCode === KEY_DELETE || keyCode === KEY_BACKSPACE) {
-					selection = getSelection($input[0]);
-					if (selection.length) {
-						value = value.substring(0, selection.start) + value.substring(selection.start + selection.length);
-					} else if (keyCode === KEY_BACKSPACE && selection.start) {
-						value = value.substring(0, selection.start - 1) + value.substring(selection.start + 1);
-					} else if (keyCode === KEY_DELETE && typeof selection.start !== 'undefined') {
-						value = value.substring(0, selection.start) + value.substring(selection.start + 1);
-					}
-				} else if (printable) {
-					shift = e.shiftKey;
-					character = String.fromCharCode(e.keyCode);
-					if (shift) character = character.toUpperCase();
-					else character = character.toLowerCase();
-					value += character;
-				}
-			}
-	
-			placeholder = $input.attr('placeholder');
-			if (!value && placeholder) {
-				value = placeholder;
-			}
-	
-			width = measureString(value, $input) + 4;
-			if (width !== currentWidth) {
-				currentWidth = width;
-				$input.width(width);
-				$input.triggerHandler('resize');
-			}
-		};
-	
-		$input.on('keydown keyup update blur', update);
-		update();
-	};
-	
-	var Selectize = function($input, settings) {
-		var key, i, n, dir, input, self = this;
-		input = $input[0];
-		input.selectize = self;
-	
-		// detect rtl environment
-		var computedStyle = window.getComputedStyle && window.getComputedStyle(input, null);
-		dir = computedStyle ? computedStyle.getPropertyValue('direction') : input.currentStyle && input.currentStyle.direction;
-		dir = dir || $input.parents('[dir]:first').attr('dir') || '';
-	
-		// setup default state
-		$.extend(self, {
-			settings         : settings,
-			$input           : $input,
-			tagType          : input.tagName.toLowerCase() === 'select' ? TAG_SELECT : TAG_INPUT,
-			rtl              : /rtl/i.test(dir),
-	
-			eventNS          : '.selectize' + (++Selectize.count),
-			highlightedValue : null,
-			isOpen           : false,
-			isDisabled       : false,
-			isRequired       : $input.is('[required]'),
-			isInvalid        : false,
-			isLocked         : false,
-			isFocused        : false,
-			isInputHidden    : false,
-			isSetup          : false,
-			isShiftDown      : false,
-			isCmdDown        : false,
-			isCtrlDown       : false,
-			ignoreFocus      : false,
-			ignoreBlur       : false,
-			ignoreHover      : false,
-			hasOptions       : false,
-			currentResults   : null,
-			lastValue        : '',
-			caretPos         : 0,
-			loading          : 0,
-			loadedSearches   : {},
-	
-			$activeOption    : null,
-			$activeItems     : [],
-	
-			optgroups        : {},
-			options          : {},
-			userOptions      : {},
-			items            : [],
-			renderCache      : {},
-			onSearchChange   : settings.loadThrottle === null ? self.onSearchChange : debounce(self.onSearchChange, settings.loadThrottle)
-		});
-	
-		// search system
-		self.sifter = new Sifter(this.options, {diacritics: settings.diacritics});
-	
-		// build options table
-		$.extend(self.options, build_hash_table(settings.valueField, settings.options));
-		delete self.settings.options;
-	
-		// build optgroup table
-		$.extend(self.optgroups, build_hash_table(settings.optgroupValueField, settings.optgroups));
-		delete self.settings.optgroups;
-	
-		// option-dependent defaults
-		self.settings.mode = self.settings.mode || (self.settings.maxItems === 1 ? 'single' : 'multi');
-		if (typeof self.settings.hideSelected !== 'boolean') {
-			self.settings.hideSelected = self.settings.mode === 'multi';
-		}
-	
-		self.initializePlugins(self.settings.plugins);
-		self.setupCallbacks();
-		self.setupTemplates();
-		self.setup();
-	};
-	
-	// mixins
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	
-	MicroEvent.mixin(Selectize);
-	MicroPlugin.mixin(Selectize);
-	
-	// methods
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	
-	$.extend(Selectize.prototype, {
-	
-		/**
-		 * Creates all elements and sets up event bindings.
-		 */
-		setup: function() {
-			var self      = this;
-			var settings  = self.settings;
-			var eventNS   = self.eventNS;
-			var $window   = $(window);
-			var $document = $(document);
-			var $input    = self.$input;
-	
-			var $wrapper;
-			var $control;
-			var $control_input;
-			var $dropdown;
-			var $dropdown_content;
-			var $dropdown_parent;
-			var inputMode;
-			var timeout_blur;
-			var timeout_focus;
-			var tab_index;
-			var classes;
-			var classes_plugins;
-	
-			inputMode         = self.settings.mode;
-			tab_index         = $input.attr('tabindex') || '';
-			classes           = $input.attr('class') || '';
-	
-			$wrapper          = $('<div>').addClass(settings.wrapperClass).addClass(classes).addClass(inputMode);
-			$control          = $('<div>').addClass(settings.inputClass).addClass('items').appendTo($wrapper);
-			$control_input    = $('<input type="text" autocomplete="off" />').appendTo($control).attr('tabindex', tab_index);
-			$dropdown_parent  = $(settings.dropdownParent || $wrapper);
-			$dropdown         = $('<div>').addClass(settings.dropdownClass).addClass(inputMode).hide().appendTo($dropdown_parent);
-			$dropdown_content = $('<div>').addClass(settings.dropdownContentClass).appendTo($dropdown);
-	
-			if(self.settings.copyClassesToDropdown) {
-				$dropdown.addClass(classes);
-			}
-	
-			$wrapper.css({
-				width: $input[0].style.width
-			});
-	
-			if (self.plugins.names.length) {
-				classes_plugins = 'plugin-' + self.plugins.names.join(' plugin-');
-				$wrapper.addClass(classes_plugins);
-				$dropdown.addClass(classes_plugins);
-			}
-	
-			if ((settings.maxItems === null || settings.maxItems > 1) && self.tagType === TAG_SELECT) {
-				$input.attr('multiple', 'multiple');
-			}
-	
-			if (self.settings.placeholder) {
-				$control_input.attr('placeholder', settings.placeholder);
-			}
-	
-			if ($input.attr('autocorrect')) {
-				$control_input.attr('autocorrect', $input.attr('autocorrect'));
-			}
-	
-			if ($input.attr('autocapitalize')) {
-				$control_input.attr('autocapitalize', $input.attr('autocapitalize'));
-			}
-	
-			self.$wrapper          = $wrapper;
-			self.$control          = $control;
-			self.$control_input    = $control_input;
-			self.$dropdown         = $dropdown;
-			self.$dropdown_content = $dropdown_content;
-	
-			$dropdown.on('mouseenter', '[data-selectable]', function() { return self.onOptionHover.apply(self, arguments); });
-			$dropdown.on('mousedown', '[data-selectable]', function() { return self.onOptionSelect.apply(self, arguments); });
-			watchChildEvent($control, 'mousedown', '*:not(input)', function() { return self.onItemSelect.apply(self, arguments); });
-			autoGrow($control_input);
-	
-			$control.on({
-				mousedown : function() { return self.onMouseDown.apply(self, arguments); },
-				click     : function() { return self.onClick.apply(self, arguments); }
-			});
-	
-			$control_input.on({
-				mousedown : function(e) { e.stopPropagation(); },
-				keydown   : function() { return self.onKeyDown.apply(self, arguments); },
-				keyup     : function() { return self.onKeyUp.apply(self, arguments); },
-				keypress  : function() { return self.onKeyPress.apply(self, arguments); },
-				resize    : function() { self.positionDropdown.apply(self, []); },
-				blur      : function() { return self.onBlur.apply(self, arguments); },
-				focus     : function() { self.ignoreBlur = false; return self.onFocus.apply(self, arguments); },
-				paste     : function() { return self.onPaste.apply(self, arguments); }
-			});
-	
-			$document.on('keydown' + eventNS, function(e) {
-				self.isCmdDown = e[IS_MAC ? 'metaKey' : 'ctrlKey'];
-				self.isCtrlDown = e[IS_MAC ? 'altKey' : 'ctrlKey'];
-				self.isShiftDown = e.shiftKey;
-			});
-	
-			$document.on('keyup' + eventNS, function(e) {
-				if (e.keyCode === KEY_CTRL) self.isCtrlDown = false;
-				if (e.keyCode === KEY_SHIFT) self.isShiftDown = false;
-				if (e.keyCode === KEY_CMD) self.isCmdDown = false;
-			});
-	
-			$document.on('mousedown' + eventNS, function(e) {
-				if (self.isFocused) {
-					// prevent events on the dropdown scrollbar from causing the control to blur
-					if (e.target === self.$dropdown[0] || e.target.parentNode === self.$dropdown[0]) {
-						return false;
-					}
-					// blur on click outside
-					if (!self.$control.has(e.target).length && e.target !== self.$control[0]) {
-						self.blur();
-					}
-				}
-			});
-	
-			$window.on(['scroll' + eventNS, 'resize' + eventNS].join(' '), function() {
-				if (self.isOpen) {
-					self.positionDropdown.apply(self, arguments);
-				}
-			});
-			$window.on('mousemove' + eventNS, function() {
-				self.ignoreHover = false;
-			});
-	
-			// store original children and tab index so that they can be
-			// restored when the destroy() method is called.
-			this.revertSettings = {
-				$children : $input.children().detach(),
-				tabindex  : $input.attr('tabindex')
-			};
-	
-			$input.attr('tabindex', -1).hide().after(self.$wrapper);
-	
-			if ($.isArray(settings.items)) {
-				self.setValue(settings.items);
-				delete settings.items;
-			}
-	
-			// feature detect for the validation API
-			if ($input[0].validity) {
-				$input.on('invalid' + eventNS, function(e) {
-					e.preventDefault();
-					self.isInvalid = true;
-					self.refreshState();
-				});
-			}
-	
-			self.updateOriginalInput();
-			self.refreshItems();
-			self.refreshState();
-			self.updatePlaceholder();
-			self.isSetup = true;
-	
-			if ($input.is(':disabled')) {
-				self.disable();
-			}
-	
-			self.on('change', this.onChange);
-	
-			$input.data('selectize', self);
-			$input.addClass('selectized');
-			self.trigger('initialize');
-	
-			// preload options
-			if (settings.preload === true) {
-				self.onSearchChange('');
-			}
-	
-		},
-	
-		/**
-		 * Sets up default rendering functions.
-		 */
-		setupTemplates: function() {
-			var self = this;
-			var field_label = self.settings.labelField;
-			var field_optgroup = self.settings.optgroupLabelField;
-	
-			var templates = {
-				'optgroup': function(data) {
-					return '<div class="optgroup">' + data.html + '</div>';
-				},
-				'optgroup_header': function(data, escape) {
-					return '<div class="optgroup-header">' + escape(data[field_optgroup]) + '</div>';
-				},
-				'option': function(data, escape) {
-					return '<div class="option">' + escape(data[field_label]) + '</div>';
-				},
-				'item': function(data, escape) {
-					return '<div class="item">' + escape(data[field_label]) + '</div>';
-				},
-				'option_create': function(data, escape) {
-					return '<div class="create">Add <strong>' + escape(data.input) + '</strong>&hellip;</div>';
-				}
-			};
-	
-			self.settings.render = $.extend({}, templates, self.settings.render);
-		},
-	
-		/**
-		 * Maps fired events to callbacks provided
-		 * in the settings used when creating the control.
-		 */
-		setupCallbacks: function() {
-			var key, fn, callbacks = {
-				'initialize'     : 'onInitialize',
-				'change'         : 'onChange',
-				'item_add'       : 'onItemAdd',
-				'item_remove'    : 'onItemRemove',
-				'clear'          : 'onClear',
-				'option_add'     : 'onOptionAdd',
-				'option_remove'  : 'onOptionRemove',
-				'option_clear'   : 'onOptionClear',
-				'dropdown_open'  : 'onDropdownOpen',
-				'dropdown_close' : 'onDropdownClose',
-				'type'           : 'onType',
-				'load'           : 'onLoad'
-			};
-	
-			for (key in callbacks) {
-				if (callbacks.hasOwnProperty(key)) {
-					fn = this.settings[callbacks[key]];
-					if (fn) this.on(key, fn);
-				}
-			}
-		},
-	
-		/**
-		 * Triggered when the main control element
-		 * has a click event.
-		 *
-		 * @param {object} e
-		 * @return {boolean}
-		 */
-		onClick: function(e) {
-			var self = this;
-	
-			// necessary for mobile webkit devices (manual focus triggering
-			// is ignored unless invoked within a click event)
-			if (!self.isFocused) {
-				self.focus();
-				e.preventDefault();
-			}
-		},
-	
-		/**
-		 * Triggered when the main control element
-		 * has a mouse down event.
-		 *
-		 * @param {object} e
-		 * @return {boolean}
-		 */
-		onMouseDown: function(e) {
-			var self = this;
-			var defaultPrevented = e.isDefaultPrevented();
-			var $target = $(e.target);
-	
-			if (self.isFocused) {
-				// retain focus by preventing native handling. if the
-				// event target is the input it should not be modified.
-				// otherwise, text selection within the input won't work.
-				if (e.target !== self.$control_input[0]) {
-					if (self.settings.mode === 'single') {
-						// toggle dropdown
-						self.isOpen ? self.close() : self.open();
-					} else if (!defaultPrevented) {
-						self.setActiveItem(null);
-					}
-					return false;
-				}
-			} else {
-				// give control focus
-				if (!defaultPrevented) {
-					window.setTimeout(function() {
-						self.focus();
-					}, 0);
-				}
-			}
-		},
-	
-		/**
-		 * Triggered when the value of the control has been changed.
-		 * This should propagate the event to the original DOM
-		 * input / select element.
-		 */
-		onChange: function() {
-			this.$input.trigger('change');
-		},
-	
-	
-		/**
-		 * Triggered on <input> paste.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onPaste: function(e) {
-			var self = this;
-			if (self.isFull() || self.isInputHidden || self.isLocked) {
-				e.preventDefault();
-			}
-		},
-	
-		/**
-		 * Triggered on <input> keypress.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onKeyPress: function(e) {
-			if (this.isLocked) return e && e.preventDefault();
-			var character = String.fromCharCode(e.keyCode || e.which);
-			if (this.settings.create && character === this.settings.delimiter) {
-				this.createItem();
-				e.preventDefault();
-				return false;
-			}
-		},
-	
-		/**
-		 * Triggered on <input> keydown.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onKeyDown: function(e) {
-			var isInput = e.target === this.$control_input[0];
-			var self = this;
-	
-			if (self.isLocked) {
-				if (e.keyCode !== KEY_TAB) {
-					e.preventDefault();
-				}
-				return;
-			}
-	
-			switch (e.keyCode) {
-				case KEY_A:
-					if (self.isCmdDown) {
-						self.selectAll();
-						return;
-					}
-					break;
-				case KEY_ESC:
-					self.close();
-					return;
-				case KEY_N:
-					if (!e.ctrlKey || e.altKey) break;
-				case KEY_DOWN:
-					if (!self.isOpen && self.hasOptions) {
-						self.open();
-					} else if (self.$activeOption) {
-						self.ignoreHover = true;
-						var $next = self.getAdjacentOption(self.$activeOption, 1);
-						if ($next.length) self.setActiveOption($next, true, true);
-					}
-					e.preventDefault();
-					return;
-				case KEY_P:
-					if (!e.ctrlKey || e.altKey) break;
-				case KEY_UP:
-					if (self.$activeOption) {
-						self.ignoreHover = true;
-						var $prev = self.getAdjacentOption(self.$activeOption, -1);
-						if ($prev.length) self.setActiveOption($prev, true, true);
-					}
-					e.preventDefault();
-					return;
-				case KEY_RETURN:
-					if (self.isOpen && self.$activeOption) {
-						self.onOptionSelect({currentTarget: self.$activeOption});
-					}
-					e.preventDefault();
-					return;
-				case KEY_LEFT:
-					self.advanceSelection(-1, e);
-					return;
-				case KEY_RIGHT:
-					self.advanceSelection(1, e);
-					return;
-				case KEY_TAB:
-					if (self.settings.selectOnTab && self.isOpen && self.$activeOption) {
-						self.onOptionSelect({currentTarget: self.$activeOption});
-						e.preventDefault();
-					}
-					if (self.settings.create && self.createItem()) {
-						e.preventDefault();
-					}
-					return;
-				case KEY_BACKSPACE:
-				case KEY_DELETE:
-					self.deleteSelection(e);
-					return;
-			}
-	
-			if ((self.isFull() || self.isInputHidden) && !(IS_MAC ? e.metaKey : e.ctrlKey)) {
-				e.preventDefault();
-				return;
-			}
-		},
-	
-		/**
-		 * Triggered on <input> keyup.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onKeyUp: function(e) {
-			var self = this;
-	
-			if (self.isLocked) return e && e.preventDefault();
-			var value = self.$control_input.val() || '';
-			if (self.lastValue !== value) {
-				self.lastValue = value;
-				self.onSearchChange(value);
-				self.refreshOptions();
-				self.trigger('type', value);
-			}
-		},
-	
-		/**
-		 * Invokes the user-provide option provider / loader.
-		 *
-		 * Note: this function is debounced in the Selectize
-		 * constructor (by `settings.loadDelay` milliseconds)
-		 *
-		 * @param {string} value
-		 */
-		onSearchChange: function(value) {
-			var self = this;
-			var fn = self.settings.load;
-			if (!fn) return;
-			if (self.loadedSearches.hasOwnProperty(value)) return;
-			self.loadedSearches[value] = true;
-			self.load(function(callback) {
-				fn.apply(self, [value, callback]);
-			});
-		},
-	
-		/**
-		 * Triggered on <input> focus.
-		 *
-		 * @param {object} e (optional)
-		 * @returns {boolean}
-		 */
-		onFocus: function(e) {
-			var self = this;
-	
-			self.isFocused = true;
-			if (self.isDisabled) {
-				self.blur();
-				e && e.preventDefault();
-				return false;
-			}
-	
-			if (self.ignoreFocus) return;
-			if (self.settings.preload === 'focus') self.onSearchChange('');
-	
-			if (!self.$activeItems.length) {
-				self.showInput();
-				self.setActiveItem(null);
-				self.refreshOptions(!!self.settings.openOnFocus);
-			}
-	
-			self.refreshState();
-		},
-	
-		/**
-		 * Triggered on <input> blur.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onBlur: function(e) {
-			var self = this;
-			self.isFocused = false;
-			if (self.ignoreFocus) return;
-	
-			// necessary to prevent IE closing the dropdown when the scrollbar is clicked
-			if (!self.ignoreBlur && document.activeElement === self.$dropdown_content[0]) {
-				self.ignoreBlur = true;
-				self.onFocus(e);
-	
-				return;
-			}
-	
-			if (self.settings.create && self.settings.createOnBlur) {
-				self.createItem(false);
-			}
-	
-			self.close();
-			self.setTextboxValue('');
-			self.setActiveItem(null);
-			self.setActiveOption(null);
-			self.setCaret(self.items.length);
-			self.refreshState();
-		},
-	
-		/**
-		 * Triggered when the user rolls over
-		 * an option in the autocomplete dropdown menu.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onOptionHover: function(e) {
-			if (this.ignoreHover) return;
-			this.setActiveOption(e.currentTarget, false);
-		},
-	
-		/**
-		 * Triggered when the user clicks on an option
-		 * in the autocomplete dropdown menu.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onOptionSelect: function(e) {
-			var value, $target, $option, self = this;
-	
-			if (e.preventDefault) {
-				e.preventDefault();
-				e.stopPropagation();
-			}
-	
-			$target = $(e.currentTarget);
-			if ($target.hasClass('create')) {
-				self.createItem();
-			} else {
-				value = $target.attr('data-value');
-				if (typeof value !== 'undefined') {
-					self.lastQuery = null;
-					self.setTextboxValue('');
-					self.addItem(value);
-					if (!self.settings.hideSelected && e.type && /mouse/.test(e.type)) {
-						self.setActiveOption(self.getOption(value));
-					}
-				}
-			}
-		},
-	
-		/**
-		 * Triggered when the user clicks on an item
-		 * that has been selected.
-		 *
-		 * @param {object} e
-		 * @returns {boolean}
-		 */
-		onItemSelect: function(e) {
-			var self = this;
-	
-			if (self.isLocked) return;
-			if (self.settings.mode === 'multi') {
-				e.preventDefault();
-				self.setActiveItem(e.currentTarget, e);
-			}
-		},
-	
-		/**
-		 * Invokes the provided method that provides
-		 * results to a callback---which are then added
-		 * as options to the control.
-		 *
-		 * @param {function} fn
-		 */
-		load: function(fn) {
-			var self = this;
-			var $wrapper = self.$wrapper.addClass('loading');
-	
-			self.loading++;
-			fn.apply(self, [function(results) {
-				self.loading = Math.max(self.loading - 1, 0);
-				if (results && results.length) {
-					self.addOption(results);
-					self.refreshOptions(self.isFocused && !self.isInputHidden);
-				}
-				if (!self.loading) {
-					$wrapper.removeClass('loading');
-				}
-				self.trigger('load', results);
-			}]);
-		},
-	
-		/**
-		 * Sets the input field of the control to the specified value.
-		 *
-		 * @param {string} value
-		 */
-		setTextboxValue: function(value) {
-			var $input = this.$control_input;
-			var changed = $input.val() !== value;
-			if (changed) {
-				$input.val(value).triggerHandler('update');
-				this.lastValue = value;
-			}
-		},
-	
-		/**
-		 * Returns the value of the control. If multiple items
-		 * can be selected (e.g. <select multiple>), this returns
-		 * an array. If only one item can be selected, this
-		 * returns a string.
-		 *
-		 * @returns {mixed}
-		 */
-		getValue: function() {
-			if (this.tagType === TAG_SELECT && this.$input.attr('multiple')) {
-				return this.items;
-			} else {
-				return this.items.join(this.settings.delimiter);
-			}
-		},
-	
-		/**
-		 * Resets the selected items to the given value.
-		 *
-		 * @param {mixed} value
-		 */
-		setValue: function(value) {
-			debounce_events(this, ['change'], function() {
-				this.clear();
-				this.addItems(value);
-			});
-		},
-	
-		/**
-		 * Sets the selected item.
-		 *
-		 * @param {object} $item
-		 * @param {object} e (optional)
-		 */
-		setActiveItem: function($item, e) {
-			var self = this;
-			var eventName;
-			var i, idx, begin, end, item, swap;
-			var $last;
-	
-			if (self.settings.mode === 'single') return;
-			$item = $($item);
-	
-			// clear the active selection
-			if (!$item.length) {
-				$(self.$activeItems).removeClass('active');
-				self.$activeItems = [];
-				if (self.isFocused) {
-					self.showInput();
-				}
-				return;
-			}
-	
-			// modify selection
-			eventName = e && e.type.toLowerCase();
-	
-			if (eventName === 'mousedown' && self.isShiftDown && self.$activeItems.length) {
-				$last = self.$control.children('.active:last');
-				begin = Array.prototype.indexOf.apply(self.$control[0].childNodes, [$last[0]]);
-				end   = Array.prototype.indexOf.apply(self.$control[0].childNodes, [$item[0]]);
-				if (begin > end) {
-					swap  = begin;
-					begin = end;
-					end   = swap;
-				}
-				for (i = begin; i <= end; i++) {
-					item = self.$control[0].childNodes[i];
-					if (self.$activeItems.indexOf(item) === -1) {
-						$(item).addClass('active');
-						self.$activeItems.push(item);
-					}
-				}
-				e.preventDefault();
-			} else if ((eventName === 'mousedown' && self.isCtrlDown) || (eventName === 'keydown' && this.isShiftDown)) {
-				if ($item.hasClass('active')) {
-					idx = self.$activeItems.indexOf($item[0]);
-					self.$activeItems.splice(idx, 1);
-					$item.removeClass('active');
-				} else {
-					self.$activeItems.push($item.addClass('active')[0]);
-				}
-			} else {
-				$(self.$activeItems).removeClass('active');
-				self.$activeItems = [$item.addClass('active')[0]];
-			}
-	
-			// ensure control has focus
-			self.hideInput();
-			if (!this.isFocused) {
-				self.focus();
-			}
-		},
-	
-		/**
-		 * Sets the selected item in the dropdown menu
-		 * of available options.
-		 *
-		 * @param {object} $object
-		 * @param {boolean} scroll
-		 * @param {boolean} animate
-		 */
-		setActiveOption: function($option, scroll, animate) {
-			var height_menu, height_item, y;
-			var scroll_top, scroll_bottom;
-			var self = this;
-	
-			if (self.$activeOption) self.$activeOption.removeClass('active');
-			self.$activeOption = null;
-	
-			$option = $($option);
-			if (!$option.length) return;
-	
-			self.$activeOption = $option.addClass('active');
-	
-			if (scroll || !isset(scroll)) {
-	
-				height_menu   = self.$dropdown_content.height();
-				height_item   = self.$activeOption.outerHeight(true);
-				scroll        = self.$dropdown_content.scrollTop() || 0;
-				y             = self.$activeOption.offset().top - self.$dropdown_content.offset().top + scroll;
-				scroll_top    = y;
-				scroll_bottom = y - height_menu + height_item;
-	
-				if (y + height_item > height_menu + scroll) {
-					self.$dropdown_content.stop().animate({scrollTop: scroll_bottom}, animate ? self.settings.scrollDuration : 0);
-				} else if (y < scroll) {
-					self.$dropdown_content.stop().animate({scrollTop: scroll_top}, animate ? self.settings.scrollDuration : 0);
-				}
-	
-			}
-		},
-	
-		/**
-		 * Selects all items (CTRL + A).
-		 */
-		selectAll: function() {
-			var self = this;
-			if (self.settings.mode === 'single') return;
-	
-			self.$activeItems = Array.prototype.slice.apply(self.$control.children(':not(input)').addClass('active'));
-			if (self.$activeItems.length) {
-				self.hideInput();
-				self.close();
-			}
-			self.focus();
-		},
-	
-		/**
-		 * Hides the input element out of view, while
-		 * retaining its focus.
-		 */
-		hideInput: function() {
-			var self = this;
-	
-			self.setTextboxValue('');
-			self.$control_input.css({opacity: 0, position: 'absolute', left: self.rtl ? 10000 : -10000});
-			self.isInputHidden = true;
-		},
-	
-		/**
-		 * Restores input visibility.
-		 */
-		showInput: function() {
-			this.$control_input.css({opacity: 1, position: 'relative', left: 0});
-			this.isInputHidden = false;
-		},
-	
-		/**
-		 * Gives the control focus. If "trigger" is falsy,
-		 * focus handlers won't be fired--causing the focus
-		 * to happen silently in the background.
-		 *
-		 * @param {boolean} trigger
-		 */
-		focus: function() {
-			var self = this;
-			if (self.isDisabled) return;
-	
-			self.ignoreFocus = true;
-			self.$control_input[0].focus();
-			window.setTimeout(function() {
-				self.ignoreFocus = false;
-				self.onFocus();
-			}, 0);
-		},
-	
-		/**
-		 * Forces the control out of focus.
-		 */
-		blur: function() {
-			this.$control_input.trigger('blur');
-		},
-	
-		/**
-		 * Returns a function that scores an object
-		 * to show how good of a match it is to the
-		 * provided query.
-		 *
-		 * @param {string} query
-		 * @param {object} options
-		 * @return {function}
-		 */
-		getScoreFunction: function(query) {
-			return this.sifter.getScoreFunction(query, this.getSearchOptions());
-		},
-	
-		/**
-		 * Returns search options for sifter (the system
-		 * for scoring and sorting results).
-		 *
-		 * @see https://github.com/brianreavis/sifter.js
-		 * @return {object}
-		 */
-		getSearchOptions: function() {
-			var settings = this.settings;
-			var sort = settings.sortField;
-			if (typeof sort === 'string') {
-				sort = {field: sort};
-			}
-	
-			return {
-				fields      : settings.searchField,
-				conjunction : settings.searchConjunction,
-				sort        : sort
-			};
-		},
-	
-		/**
-		 * Searches through available options and returns
-		 * a sorted array of matches.
-		 *
-		 * Returns an object containing:
-		 *
-		 *   - query {string}
-		 *   - tokens {array}
-		 *   - total {int}
-		 *   - items {array}
-		 *
-		 * @param {string} query
-		 * @returns {object}
-		 */
-		search: function(query) {
-			var i, value, score, result, calculateScore;
-			var self     = this;
-			var settings = self.settings;
-			var options  = this.getSearchOptions();
-	
-			// validate user-provided result scoring function
-			if (settings.score) {
-				calculateScore = self.settings.score.apply(this, [query]);
-				if (typeof calculateScore !== 'function') {
-					throw new Error('Selectize "score" setting must be a function that returns a function');
-				}
-			}
-	
-			// perform search
-			if (query !== self.lastQuery) {
-				self.lastQuery = query;
-				result = self.sifter.search(query, $.extend(options, {score: calculateScore}));
-				self.currentResults = result;
-			} else {
-				result = $.extend(true, {}, self.currentResults);
-			}
-	
-			// filter out selected items
-			if (settings.hideSelected) {
-				for (i = result.items.length - 1; i >= 0; i--) {
-					if (self.items.indexOf(hash_key(result.items[i].id)) !== -1) {
-						result.items.splice(i, 1);
-					}
-				}
-			}
-	
-			return result;
-		},
-	
-		/**
-		 * Refreshes the list of available options shown
-		 * in the autocomplete dropdown menu.
-		 *
-		 * @param {boolean} triggerDropdown
-		 */
-		refreshOptions: function(triggerDropdown) {
-			var i, j, k, n, groups, groups_order, option, option_html, optgroup, optgroups, html, html_children, has_create_option;
-			var $active, $active_before, $create;
-	
-			if (typeof triggerDropdown === 'undefined') {
-				triggerDropdown = true;
-			}
-	
-			var self              = this;
-			var query             = $.trim(self.$control_input.val());
-			var results           = self.search(query);
-			var $dropdown_content = self.$dropdown_content;
-			var active_before     = self.$activeOption && hash_key(self.$activeOption.attr('data-value'));
-	
-			// build markup
-			n = results.items.length;
-			if (typeof self.settings.maxOptions === 'number') {
-				n = Math.min(n, self.settings.maxOptions);
-			}
-	
-			// render and group available options individually
-			groups = {};
-	
-			if (self.settings.optgroupOrder) {
-				groups_order = self.settings.optgroupOrder;
-				for (i = 0; i < groups_order.length; i++) {
-					groups[groups_order[i]] = [];
-				}
-			} else {
-				groups_order = [];
-			}
-	
-			for (i = 0; i < n; i++) {
-				option      = self.options[results.items[i].id];
-				option_html = self.render('option', option);
-				optgroup    = option[self.settings.optgroupField] || '';
-				optgroups   = $.isArray(optgroup) ? optgroup : [optgroup];
-	
-				for (j = 0, k = optgroups && optgroups.length; j < k; j++) {
-					optgroup = optgroups[j];
-					if (!self.optgroups.hasOwnProperty(optgroup)) {
-						optgroup = '';
-					}
-					if (!groups.hasOwnProperty(optgroup)) {
-						groups[optgroup] = [];
-						groups_order.push(optgroup);
-					}
-					groups[optgroup].push(option_html);
-				}
-			}
-	
-			// render optgroup headers & join groups
-			html = [];
-			for (i = 0, n = groups_order.length; i < n; i++) {
-				optgroup = groups_order[i];
-				if (self.optgroups.hasOwnProperty(optgroup) && groups[optgroup].length) {
-					// render the optgroup header and options within it,
-					// then pass it to the wrapper template
-					html_children = self.render('optgroup_header', self.optgroups[optgroup]) || '';
-					html_children += groups[optgroup].join('');
-					html.push(self.render('optgroup', $.extend({}, self.optgroups[optgroup], {
-						html: html_children
-					})));
-				} else {
-					html.push(groups[optgroup].join(''));
-				}
-			}
-	
-			$dropdown_content.html(html.join(''));
-	
-			// highlight matching terms inline
-			if (self.settings.highlight && results.query.length && results.tokens.length) {
-				for (i = 0, n = results.tokens.length; i < n; i++) {
-					highlight($dropdown_content, results.tokens[i].regex);
-				}
-			}
-	
-			// add "selected" class to selected options
-			if (!self.settings.hideSelected) {
-				for (i = 0, n = self.items.length; i < n; i++) {
-					self.getOption(self.items[i]).addClass('selected');
-				}
-			}
-	
-			// add create option
-			has_create_option = self.canCreate(query);
-			if (has_create_option) {
-				$dropdown_content.prepend(self.render('option_create', {input: query}));
-				$create = $($dropdown_content[0].childNodes[0]);
-			}
-	
-			// activate
-			self.hasOptions = results.items.length > 0 || has_create_option;
-			if (self.hasOptions) {
-				if (results.items.length > 0) {
-					$active_before = active_before && self.getOption(active_before);
-					if ($active_before && $active_before.length) {
-						$active = $active_before;
-					} else if (self.settings.mode === 'single' && self.items.length) {
-						$active = self.getOption(self.items[0]);
-					}
-					if (!$active || !$active.length) {
-						if ($create && !self.settings.addPrecedence) {
-							$active = self.getAdjacentOption($create, 1);
-						} else {
-							$active = $dropdown_content.find('[data-selectable]:first');
-						}
-					}
-				} else {
-					$active = $create;
-				}
-				self.setActiveOption($active);
-				if (triggerDropdown && !self.isOpen) { self.open(); }
-			} else {
-				self.setActiveOption(null);
-				if (triggerDropdown && self.isOpen) { self.close(); }
-			}
-		},
-	
-		/**
-		 * Adds an available option. If it already exists,
-		 * nothing will happen. Note: this does not refresh
-		 * the options list dropdown (use `refreshOptions`
-		 * for that).
-		 *
-		 * Usage:
-		 *
-		 *   this.addOption(data)
-		 *
-		 * @param {object} data
-		 */
-		addOption: function(data) {
-			var i, n, optgroup, value, self = this;
-	
-			if ($.isArray(data)) {
-				for (i = 0, n = data.length; i < n; i++) {
-					self.addOption(data[i]);
-				}
-				return;
-			}
-	
-			value = hash_key(data[self.settings.valueField]);
-			if (typeof value !== 'string' || self.options.hasOwnProperty(value)) return;
-	
-			self.userOptions[value] = true;
-			self.options[value] = data;
-			self.lastQuery = null;
-			self.trigger('option_add', value, data);
-		},
-	
-		/**
-		 * Registers a new optgroup for options
-		 * to be bucketed into.
-		 *
-		 * @param {string} id
-		 * @param {object} data
-		 */
-		addOptionGroup: function(id, data) {
-			this.optgroups[id] = data;
-			this.trigger('optgroup_add', id, data);
-		},
-	
-		/**
-		 * Updates an option available for selection. If
-		 * it is visible in the selected items or options
-		 * dropdown, it will be re-rendered automatically.
-		 *
-		 * @param {string} value
-		 * @param {object} data
-		 */
-		updateOption: function(value, data) {
-			var self = this;
-			var $item, $item_new;
-			var value_new, index_item, cache_items, cache_options;
-	
-			value     = hash_key(value);
-			value_new = hash_key(data[self.settings.valueField]);
-	
-			// sanity checks
-			if (value === null) return;
-			if (!self.options.hasOwnProperty(value)) return;
-			if (typeof value_new !== 'string') throw new Error('Value must be set in option data');
-	
-			// update references
-			if (value_new !== value) {
-				delete self.options[value];
-				index_item = self.items.indexOf(value);
-				if (index_item !== -1) {
-					self.items.splice(index_item, 1, value_new);
-				}
-			}
-			self.options[value_new] = data;
-	
-			// invalidate render cache
-			cache_items = self.renderCache['item'];
-			cache_options = self.renderCache['option'];
-	
-			if (cache_items) {
-				delete cache_items[value];
-				delete cache_items[value_new];
-			}
-			if (cache_options) {
-				delete cache_options[value];
-				delete cache_options[value_new];
-			}
-	
-			// update the item if it's selected
-			if (self.items.indexOf(value_new) !== -1) {
-				$item = self.getItem(value);
-				$item_new = $(self.render('item', data));
-				if ($item.hasClass('active')) $item_new.addClass('active');
-				$item.replaceWith($item_new);
-			}
-	
-			//invalidate last query because we might have updated the sortField
-			self.lastQuery = null;
-	
-			// update dropdown contents
-			if (self.isOpen) {
-				self.refreshOptions(false);
-			}
-		},
-	
-		/**
-		 * Removes a single option.
-		 *
-		 * @param {string} value
-		 */
-		removeOption: function(value) {
-			var self = this;
-			value = hash_key(value);
-	
-			var cache_items = self.renderCache['item'];
-			var cache_options = self.renderCache['option'];
-			if (cache_items) delete cache_items[value];
-			if (cache_options) delete cache_options[value];
-	
-			delete self.userOptions[value];
-			delete self.options[value];
-			self.lastQuery = null;
-			self.trigger('option_remove', value);
-			self.removeItem(value);
-		},
-	
-		/**
-		 * Clears all options.
-		 */
-		clearOptions: function() {
-			var self = this;
-	
-			self.loadedSearches = {};
-			self.userOptions = {};
-			self.renderCache = {};
-			self.options = self.sifter.items = {};
-			self.lastQuery = null;
-			self.trigger('option_clear');
-			self.clear();
-		},
-	
-		/**
-		 * Returns the jQuery element of the option
-		 * matching the given value.
-		 *
-		 * @param {string} value
-		 * @returns {object}
-		 */
-		getOption: function(value) {
-			return this.getElementWithValue(value, this.$dropdown_content.find('[data-selectable]'));
-		},
-	
-		/**
-		 * Returns the jQuery element of the next or
-		 * previous selectable option.
-		 *
-		 * @param {object} $option
-		 * @param {int} direction  can be 1 for next or -1 for previous
-		 * @return {object}
-		 */
-		getAdjacentOption: function($option, direction) {
-			var $options = this.$dropdown.find('[data-selectable]');
-			var index    = $options.index($option) + direction;
-	
-			return index >= 0 && index < $options.length ? $options.eq(index) : $();
-		},
-	
-		/**
-		 * Finds the first element with a "data-value" attribute
-		 * that matches the given value.
-		 *
-		 * @param {mixed} value
-		 * @param {object} $els
-		 * @return {object}
-		 */
-		getElementWithValue: function(value, $els) {
-			value = hash_key(value);
-	
-			if (typeof value !== 'undefined' && value !== null) {
-				for (var i = 0, n = $els.length; i < n; i++) {
-					if ($els[i].getAttribute('data-value') === value) {
-						return $($els[i]);
-					}
-				}
-			}
-	
-			return $();
-		},
-	
-		/**
-		 * Returns the jQuery element of the item
-		 * matching the given value.
-		 *
-		 * @param {string} value
-		 * @returns {object}
-		 */
-		getItem: function(value) {
-			return this.getElementWithValue(value, this.$control.children());
-		},
-	
-		/**
-		 * "Selects" multiple items at once. Adds them to the list
-		 * at the current caret position.
-		 *
-		 * @param {string} value
-		 */
-		addItems: function(values) {
-			var items = $.isArray(values) ? values : [values];
-			for (var i = 0, n = items.length; i < n; i++) {
-				this.isPending = (i < n - 1);
-				this.addItem(items[i]);
-			}
-		},
-	
-		/**
-		 * "Selects" an item. Adds it to the list
-		 * at the current caret position.
-		 *
-		 * @param {string} value
-		 */
-		addItem: function(value) {
-			debounce_events(this, ['change'], function() {
-				var $item, $option, $options;
-				var self = this;
-				var inputMode = self.settings.mode;
-				var i, active, value_next, wasFull;
-				value = hash_key(value);
-	
-				if (self.items.indexOf(value) !== -1) {
-					if (inputMode === 'single') self.close();
-					return;
-				}
-	
-				if (!self.options.hasOwnProperty(value)) return;
-				if (inputMode === 'single') self.clear();
-				if (inputMode === 'multi' && self.isFull()) return;
-	
-				$item = $(self.render('item', self.options[value]));
-				wasFull = self.isFull();
-				self.items.splice(self.caretPos, 0, value);
-				self.insertAtCaret($item);
-				if (!self.isPending || (!wasFull && self.isFull())) {
-					self.refreshState();
-				}
-	
-				if (self.isSetup) {
-					$options = self.$dropdown_content.find('[data-selectable]');
-	
-					// update menu / remove the option (if this is not one item being added as part of series)
-					if (!self.isPending) {
-						$option = self.getOption(value);
-						value_next = self.getAdjacentOption($option, 1).attr('data-value');
-						self.refreshOptions(self.isFocused && inputMode !== 'single');
-						if (value_next) {
-							self.setActiveOption(self.getOption(value_next));
-						}
-					}
-	
-					// hide the menu if the maximum number of items have been selected or no options are left
-					if (!$options.length || self.isFull()) {
-						self.close();
-					} else {
-						self.positionDropdown();
-					}
-	
-					self.updatePlaceholder();
-					self.trigger('item_add', value, $item);
-					self.updateOriginalInput();
-				}
-			});
-		},
-	
-		/**
-		 * Removes the selected item matching
-		 * the provided value.
-		 *
-		 * @param {string} value
-		 */
-		removeItem: function(value) {
-			var self = this;
-			var $item, i, idx;
-	
-			$item = (typeof value === 'object') ? value : self.getItem(value);
-			value = hash_key($item.attr('data-value'));
-			i = self.items.indexOf(value);
-	
-			if (i !== -1) {
-				$item.remove();
-				if ($item.hasClass('active')) {
-					idx = self.$activeItems.indexOf($item[0]);
-					self.$activeItems.splice(idx, 1);
-				}
-	
-				self.items.splice(i, 1);
-				self.lastQuery = null;
-				if (!self.settings.persist && self.userOptions.hasOwnProperty(value)) {
-					self.removeOption(value);
-				}
-	
-				if (i < self.caretPos) {
-					self.setCaret(self.caretPos - 1);
-				}
-	
-				self.refreshState();
-				self.updatePlaceholder();
-				self.updateOriginalInput();
-				self.positionDropdown();
-				self.trigger('item_remove', value);
-			}
-		},
-	
-		/**
-		 * Invokes the `create` method provided in the
-		 * selectize options that should provide the data
-		 * for the new item, given the user input.
-		 *
-		 * Once this completes, it will be added
-		 * to the item list.
-		 *
-		 * @return {boolean}
-		 */
-		createItem: function(triggerDropdown) {
-			var self  = this;
-			var input = $.trim(self.$control_input.val() || '');
-			var caret = self.caretPos;
-			if (!self.canCreate(input)) return false;
-			self.lock();
-	
-			if (typeof triggerDropdown === 'undefined') {
-				triggerDropdown = true;
-			}
-	
-			var setup = (typeof self.settings.create === 'function') ? this.settings.create : function(input) {
-				var data = {};
-				data[self.settings.labelField] = input;
-				data[self.settings.valueField] = input;
-				return data;
-			};
-	
-			var create = once(function(data) {
-				self.unlock();
-	
-				if (!data || typeof data !== 'object') return;
-				var value = hash_key(data[self.settings.valueField]);
-				if (typeof value !== 'string') return;
-	
-				self.setTextboxValue('');
-				self.addOption(data);
-				self.setCaret(caret);
-				self.addItem(value);
-				self.refreshOptions(triggerDropdown && self.settings.mode !== 'single');
-			});
-	
-			var output = setup.apply(this, [input, create]);
-			if (typeof output !== 'undefined') {
-				create(output);
-			}
-	
-			return true;
-		},
-	
-		/**
-		 * Re-renders the selected item lists.
-		 */
-		refreshItems: function() {
-			this.lastQuery = null;
-	
-			if (this.isSetup) {
-				for (var i = 0; i < this.items.length; i++) {
-					this.addItem(this.items);
-				}
-			}
-	
-			this.refreshState();
-			this.updateOriginalInput();
-		},
-	
-		/**
-		 * Updates all state-dependent attributes
-		 * and CSS classes.
-		 */
-		refreshState: function() {
-			var invalid, self = this;
-			if (self.isRequired) {
-				if (self.items.length) self.isInvalid = false;
-				self.$control_input.prop('required', invalid);
-			}
-			self.refreshClasses();
-		},
-	
-		/**
-		 * Updates all state-dependent CSS classes.
-		 */
-		refreshClasses: function() {
-			var self     = this;
-			var isFull   = self.isFull();
-			var isLocked = self.isLocked;
-	
-			self.$wrapper
-				.toggleClass('rtl', self.rtl);
-	
-			self.$control
-				.toggleClass('focus', self.isFocused)
-				.toggleClass('disabled', self.isDisabled)
-				.toggleClass('required', self.isRequired)
-				.toggleClass('invalid', self.isInvalid)
-				.toggleClass('locked', isLocked)
-				.toggleClass('full', isFull).toggleClass('not-full', !isFull)
-				.toggleClass('input-active', self.isFocused && !self.isInputHidden)
-				.toggleClass('dropdown-active', self.isOpen)
-				.toggleClass('has-options', !$.isEmptyObject(self.options))
-				.toggleClass('has-items', self.items.length > 0);
-	
-			self.$control_input.data('grow', !isFull && !isLocked);
-		},
-	
-		/**
-		 * Determines whether or not more items can be added
-		 * to the control without exceeding the user-defined maximum.
-		 *
-		 * @returns {boolean}
-		 */
-		isFull: function() {
-			return this.settings.maxItems !== null && this.items.length >= this.settings.maxItems;
-		},
-	
-		/**
-		 * Refreshes the original <select> or <input>
-		 * element to reflect the current state.
-		 */
-		updateOriginalInput: function() {
-			var i, n, options, self = this;
-	
-			if (self.tagType === TAG_SELECT) {
-				options = [];
-				for (i = 0, n = self.items.length; i < n; i++) {
-					options.push('<option value="' + escape_html(self.items[i]) + '" selected="selected"></option>');
-				}
-				if (!options.length && !this.$input.attr('multiple')) {
-					options.push('<option value="" selected="selected"></option>');
-				}
-				self.$input.html(options.join(''));
-			} else {
-				self.$input.val(self.getValue());
-				self.$input.attr('value',self.$input.val());
-			}
-	
-			if (self.isSetup) {
-				self.trigger('change', self.$input.val());
-			}
-		},
-	
-		/**
-		 * Shows/hide the input placeholder depending
-		 * on if there items in the list already.
-		 */
-		updatePlaceholder: function() {
-			if (!this.settings.placeholder) return;
-			var $input = this.$control_input;
-	
-			if (this.items.length) {
-				$input.removeAttr('placeholder');
-			} else {
-				$input.attr('placeholder', this.settings.placeholder);
-			}
-			$input.triggerHandler('update', {force: true});
-		},
-	
-		/**
-		 * Shows the autocomplete dropdown containing
-		 * the available options.
-		 */
-		open: function() {
-			var self = this;
-	
-			if (self.isLocked || self.isOpen || (self.settings.mode === 'multi' && self.isFull())) return;
-			self.focus();
-			self.isOpen = true;
-			self.refreshState();
-			self.$dropdown.css({visibility: 'hidden', display: 'block'});
-			self.positionDropdown();
-			self.$dropdown.css({visibility: 'visible'});
-			self.trigger('dropdown_open', self.$dropdown);
-		},
-	
-		/**
-		 * Closes the autocomplete dropdown menu.
-		 */
-		close: function() {
-			var self = this;
-			var trigger = self.isOpen;
-	
-			if (self.settings.mode === 'single' && self.items.length) {
-				self.hideInput();
-			}
-	
-			self.isOpen = false;
-			self.$dropdown.hide();
-			self.setActiveOption(null);
-			self.refreshState();
-	
-			if (trigger) self.trigger('dropdown_close', self.$dropdown);
-		},
-	
-		/**
-		 * Calculates and applies the appropriate
-		 * position of the dropdown.
-		 */
-		positionDropdown: function() {
-			var $control = this.$control;
-			var offset = this.settings.dropdownParent === 'body' ? $control.offset() : $control.position();
-			offset.top += $control.outerHeight(true);
-	
-			this.$dropdown.css({
-				width : $control.outerWidth(),
-				top   : offset.top,
-				left  : offset.left
-			});
-		},
-	
-		/**
-		 * Resets / clears all selected items
-		 * from the control.
-		 */
-		clear: function() {
-			var self = this;
-	
-			if (!self.items.length) return;
-			self.$control.children(':not(input)').remove();
-			self.items = [];
-			self.lastQuery = null;
-			self.setCaret(0);
-			self.setActiveItem(null);
-			self.updatePlaceholder();
-			self.updateOriginalInput();
-			self.refreshState();
-			self.showInput();
-			self.trigger('clear');
-		},
-	
-		/**
-		 * A helper method for inserting an element
-		 * at the current caret position.
-		 *
-		 * @param {object} $el
-		 */
-		insertAtCaret: function($el) {
-			var caret = Math.min(this.caretPos, this.items.length);
-			if (caret === 0) {
-				this.$control.prepend($el);
-			} else {
-				$(this.$control[0].childNodes[caret]).before($el);
-			}
-			this.setCaret(caret + 1);
-		},
-	
-		/**
-		 * Removes the current selected item(s).
-		 *
-		 * @param {object} e (optional)
-		 * @returns {boolean}
-		 */
-		deleteSelection: function(e) {
-			var i, n, direction, selection, values, caret, option_select, $option_select, $tail;
-			var self = this;
-	
-			direction = (e && e.keyCode === KEY_BACKSPACE) ? -1 : 1;
-			selection = getSelection(self.$control_input[0]);
-	
-			if (self.$activeOption && !self.settings.hideSelected) {
-				option_select = self.getAdjacentOption(self.$activeOption, -1).attr('data-value');
-			}
-	
-			// determine items that will be removed
-			values = [];
-	
-			if (self.$activeItems.length) {
-				$tail = self.$control.children('.active:' + (direction > 0 ? 'last' : 'first'));
-				caret = self.$control.children(':not(input)').index($tail);
-				if (direction > 0) { caret++; }
-	
-				for (i = 0, n = self.$activeItems.length; i < n; i++) {
-					values.push($(self.$activeItems[i]).attr('data-value'));
-				}
-				if (e) {
-					e.preventDefault();
-					e.stopPropagation();
-				}
-			} else if ((self.isFocused || self.settings.mode === 'single') && self.items.length) {
-				if (direction < 0 && selection.start === 0 && selection.length === 0) {
-					values.push(self.items[self.caretPos - 1]);
-				} else if (direction > 0 && selection.start === self.$control_input.val().length) {
-					values.push(self.items[self.caretPos]);
-				}
-			}
-	
-			// allow the callback to abort
-			if (!values.length || (typeof self.settings.onDelete === 'function' && self.settings.onDelete.apply(self, [values]) === false)) {
-				return false;
-			}
-	
-			// perform removal
-			if (typeof caret !== 'undefined') {
-				self.setCaret(caret);
-			}
-			while (values.length) {
-				self.removeItem(values.pop());
-			}
-	
-			self.showInput();
-			self.positionDropdown();
-			self.refreshOptions(true);
-	
-			// select previous option
-			if (option_select) {
-				$option_select = self.getOption(option_select);
-				if ($option_select.length) {
-					self.setActiveOption($option_select);
-				}
-			}
-	
-			return true;
-		},
-	
-		/**
-		 * Selects the previous / next item (depending
-		 * on the `direction` argument).
-		 *
-		 * > 0 - right
-		 * < 0 - left
-		 *
-		 * @param {int} direction
-		 * @param {object} e (optional)
-		 */
-		advanceSelection: function(direction, e) {
-			var tail, selection, idx, valueLength, cursorAtEdge, $tail;
-			var self = this;
-	
-			if (direction === 0) return;
-			if (self.rtl) direction *= -1;
-	
-			tail = direction > 0 ? 'last' : 'first';
-			selection = getSelection(self.$control_input[0]);
-	
-			if (self.isFocused && !self.isInputHidden) {
-				valueLength = self.$control_input.val().length;
-				cursorAtEdge = direction < 0
-					? selection.start === 0 && selection.length === 0
-					: selection.start === valueLength;
-	
-				if (cursorAtEdge && !valueLength) {
-					self.advanceCaret(direction, e);
-				}
-			} else {
-				$tail = self.$control.children('.active:' + tail);
-				if ($tail.length) {
-					idx = self.$control.children(':not(input)').index($tail);
-					self.setActiveItem(null);
-					self.setCaret(direction > 0 ? idx + 1 : idx);
-				}
-			}
-		},
-	
-		/**
-		 * Moves the caret left / right.
-		 *
-		 * @param {int} direction
-		 * @param {object} e (optional)
-		 */
-		advanceCaret: function(direction, e) {
-			var self = this, fn, $adj;
-	
-			if (direction === 0) return;
-	
-			fn = direction > 0 ? 'next' : 'prev';
-			if (self.isShiftDown) {
-				$adj = self.$control_input[fn]();
-				if ($adj.length) {
-					self.hideInput();
-					self.setActiveItem($adj);
-					e && e.preventDefault();
-				}
-			} else {
-				self.setCaret(self.caretPos + direction);
-			}
-		},
-	
-		/**
-		 * Moves the caret to the specified index.
-		 *
-		 * @param {int} i
-		 */
-		setCaret: function(i) {
-			var self = this;
-	
-			if (self.settings.mode === 'single') {
-				i = self.items.length;
-			} else {
-				i = Math.max(0, Math.min(self.items.length, i));
-			}
-	
-			if(!self.isPending) {
-				// the input must be moved by leaving it in place and moving the
-				// siblings, due to the fact that focus cannot be restored once lost
-				// on mobile webkit devices
-				var j, n, fn, $children, $child;
-				$children = self.$control.children(':not(input)');
-				for (j = 0, n = $children.length; j < n; j++) {
-					$child = $($children[j]).detach();
-					if (j <  i) {
-						self.$control_input.before($child);
-					} else {
-						self.$control.append($child);
-					}
-				}
-			}
-	
-			self.caretPos = i;
-		},
-	
-		/**
-		 * Disables user input on the control. Used while
-		 * items are being asynchronously created.
-		 */
-		lock: function() {
-			this.close();
-			this.isLocked = true;
-			this.refreshState();
-		},
-	
-		/**
-		 * Re-enables user input on the control.
-		 */
-		unlock: function() {
-			this.isLocked = false;
-			this.refreshState();
-		},
-	
-		/**
-		 * Disables user input on the control completely.
-		 * While disabled, it cannot receive focus.
-		 */
-		disable: function() {
-			var self = this;
-			self.$input.prop('disabled', true);
-			self.isDisabled = true;
-			self.lock();
-		},
-	
-		/**
-		 * Enables the control so that it can respond
-		 * to focus and user input.
-		 */
-		enable: function() {
-			var self = this;
-			self.$input.prop('disabled', false);
-			self.isDisabled = false;
-			self.unlock();
-		},
-	
-		/**
-		 * Completely destroys the control and
-		 * unbinds all event listeners so that it can
-		 * be garbage collected.
-		 */
-		destroy: function() {
-			var self = this;
-			var eventNS = self.eventNS;
-			var revertSettings = self.revertSettings;
-	
-			self.trigger('destroy');
-			self.off();
-			self.$wrapper.remove();
-			self.$dropdown.remove();
-	
-			self.$input
-				.html('')
-				.append(revertSettings.$children)
-				.removeAttr('tabindex')
-				.removeClass('selectized')
-				.attr({tabindex: revertSettings.tabindex})
-				.show();
-	
-			self.$control_input.removeData('grow');
-			self.$input.removeData('selectize');
-	
-			$(window).off(eventNS);
-			$(document).off(eventNS);
-			$(document.body).off(eventNS);
-	
-			delete self.$input[0].selectize;
-		},
-	
-		/**
-		 * A helper method for rendering "item" and
-		 * "option" templates, given the data.
-		 *
-		 * @param {string} templateName
-		 * @param {object} data
-		 * @returns {string}
-		 */
-		render: function(templateName, data) {
-			var value, id, label;
-			var html = '';
-			var cache = false;
-			var self = this;
-			var regex_tag = /^[\t ]*<([a-z][a-z0-9\-_]*(?:\:[a-z][a-z0-9\-_]*)?)/i;
-	
-			if (templateName === 'option' || templateName === 'item') {
-				value = hash_key(data[self.settings.valueField]);
-				cache = !!value;
-			}
-	
-			// pull markup from cache if it exists
-			if (cache) {
-				if (!isset(self.renderCache[templateName])) {
-					self.renderCache[templateName] = {};
-				}
-				if (self.renderCache[templateName].hasOwnProperty(value)) {
-					return self.renderCache[templateName][value];
-				}
-			}
-	
-			// render markup
-			html = self.settings.render[templateName].apply(this, [data, escape_html]);
-	
-			// add mandatory attributes
-			if (templateName === 'option' || templateName === 'option_create') {
-				html = html.replace(regex_tag, '<$1 data-selectable');
-			}
-			if (templateName === 'optgroup') {
-				id = data[self.settings.optgroupValueField] || '';
-				html = html.replace(regex_tag, '<$1 data-group="' + escape_replace(escape_html(id)) + '"');
-			}
-			if (templateName === 'option' || templateName === 'item') {
-				html = html.replace(regex_tag, '<$1 data-value="' + escape_replace(escape_html(value || '')) + '"');
-			}
-	
-			// update cache
-			if (cache) {
-				self.renderCache[templateName][value] = html;
-			}
-	
-			return html;
-		},
-	
-		/**
-		 * Clears the render cache for a template. If
-		 * no template is given, clears all render
-		 * caches.
-		 *
-		 * @param {string} templateName
-		 */
-		clearCache: function(templateName) {
-			var self = this;
-			if (typeof templateName === 'undefined') {
-				self.renderCache = {};
-			} else {
-				delete self.renderCache[templateName];
-			}
-		},
-	
-		/**
-		 * Determines whether or not to display the
-		 * create item prompt, given a user input.
-		 *
-		 * @param {string} input
-		 * @return {boolean}
-		 */
-		canCreate: function(input) {
-			var self = this;
-			if (!self.settings.create) return false;
-			var filter = self.settings.createFilter;
-			return input.length
-				&& (typeof filter !== 'function' || filter.apply(self, [input]))
-				&& (typeof filter !== 'string' || new RegExp(filter).test(input))
-				&& (!(filter instanceof RegExp) || filter.test(input));
-		}
-	
-	});
-	
-	
-	Selectize.count = 0;
-	Selectize.defaults = {
-		plugins: [],
-		delimiter: ',',
-		persist: true,
-		diacritics: true,
-		create: false,
-		createOnBlur: false,
-		createFilter: null,
-		highlight: true,
-		openOnFocus: true,
-		maxOptions: 1000,
-		maxItems: null,
-		hideSelected: null,
-		addPrecedence: false,
-		selectOnTab: false,
-		preload: false,
-		allowEmptyOption: false,
-	
-		scrollDuration: 60,
-		loadThrottle: 300,
-	
-		dataAttr: 'data-data',
-		optgroupField: 'optgroup',
-		valueField: 'value',
-		labelField: 'text',
-		optgroupLabelField: 'label',
-		optgroupValueField: 'value',
-		optgroupOrder: null,
-	
-		sortField: '$order',
-		searchField: ['text'],
-		searchConjunction: 'and',
-	
-		mode: null,
-		wrapperClass: 'selectize-control',
-		inputClass: 'selectize-input',
-		dropdownClass: 'selectize-dropdown',
-		dropdownContentClass: 'selectize-dropdown-content',
-	
-		dropdownParent: null,
-	
-		copyClassesToDropdown: true,
-	
-		/*
-		load            : null, // function(query, callback) { ... }
-		score           : null, // function(search) { ... }
-		onInitialize    : null, // function() { ... }
-		onChange        : null, // function(value) { ... }
-		onItemAdd       : null, // function(value, $item) { ... }
-		onItemRemove    : null, // function(value) { ... }
-		onClear         : null, // function() { ... }
-		onOptionAdd     : null, // function(value, data) { ... }
-		onOptionRemove  : null, // function(value) { ... }
-		onOptionClear   : null, // function() { ... }
-		onDropdownOpen  : null, // function($dropdown) { ... }
-		onDropdownClose : null, // function($dropdown) { ... }
-		onType          : null, // function(str) { ... }
-		onDelete        : null, // function(values) { ... }
-		*/
-	
-		render: {
-			/*
-			item: null,
-			optgroup: null,
-			optgroup_header: null,
-			option: null,
-			option_create: null
-			*/
-		}
-	};
-	
-	
-	$.fn.selectize = function(settings_user) {
-		var defaults             = $.fn.selectize.defaults;
-		var settings             = $.extend({}, defaults, settings_user);
-		var attr_data            = settings.dataAttr;
-		var field_label          = settings.labelField;
-		var field_value          = settings.valueField;
-		var field_optgroup       = settings.optgroupField;
-		var field_optgroup_label = settings.optgroupLabelField;
-		var field_optgroup_value = settings.optgroupValueField;
-	
-		/**
-		 * Initializes selectize from a <input type="text"> element.
-		 *
-		 * @param {object} $input
-		 * @param {object} settings_element
-		 */
-		var init_textbox = function($input, settings_element) {
-			var i, n, values, option, value = $.trim($input.val() || '');
-			if (!settings.allowEmptyOption && !value.length) return;
-	
-			values = value.split(settings.delimiter);
-			for (i = 0, n = values.length; i < n; i++) {
-				option = {};
-				option[field_label] = values[i];
-				option[field_value] = values[i];
-	
-				settings_element.options[values[i]] = option;
-			}
-	
-			settings_element.items = values;
-		};
-	
-		/**
-		 * Initializes selectize from a <select> element.
-		 *
-		 * @param {object} $input
-		 * @param {object} settings_element
-		 */
-		var init_select = function($input, settings_element) {
-			var i, n, tagName, $children, order = 0;
-			var options = settings_element.options;
-	
-			var readData = function($el) {
-				var data = attr_data && $el.attr(attr_data);
-				if (typeof data === 'string' && data.length) {
-					return JSON.parse(data);
-				}
-				return null;
-			};
-	
-			var addOption = function($option, group) {
-				var value, option;
-	
-				$option = $($option);
-	
-				value = $option.attr('value') || '';
-				if (!value.length && !settings.allowEmptyOption) return;
-	
-				// if the option already exists, it's probably been
-				// duplicated in another optgroup. in this case, push
-				// the current group to the "optgroup" property on the
-				// existing option so that it's rendered in both places.
-				if (options.hasOwnProperty(value)) {
-					if (group) {
-						if (!options[value].optgroup) {
-							options[value].optgroup = group;
-						} else if (!$.isArray(options[value].optgroup)) {
-							options[value].optgroup = [options[value].optgroup, group];
-						} else {
-							options[value].optgroup.push(group);
-						}
-					}
-					return;
-				}
-	
-				option                 = readData($option) || {};
-				option[field_label]    = option[field_label] || $option.text();
-				option[field_value]    = option[field_value] || value;
-				option[field_optgroup] = option[field_optgroup] || group;
-	
-				option.$order = ++order;
-				options[value] = option;
-	
-				if ($option.is(':selected')) {
-					settings_element.items.push(value);
-				}
-			};
-	
-			var addGroup = function($optgroup) {
-				var i, n, id, optgroup, $options;
-	
-				$optgroup = $($optgroup);
-				id = $optgroup.attr('label');
-	
-				if (id) {
-					optgroup = readData($optgroup) || {};
-					optgroup[field_optgroup_label] = id;
-					optgroup[field_optgroup_value] = id;
-					settings_element.optgroups[id] = optgroup;
-				}
-	
-				$options = $('option', $optgroup);
-				for (i = 0, n = $options.length; i < n; i++) {
-					addOption($options[i], id);
-				}
-			};
-	
-			settings_element.maxItems = $input.attr('multiple') ? null : 1;
-	
-			$children = $input.children();
-			for (i = 0, n = $children.length; i < n; i++) {
-				tagName = $children[i].tagName.toLowerCase();
-				if (tagName === 'optgroup') {
-					addGroup($children[i]);
-				} else if (tagName === 'option') {
-					addOption($children[i]);
-				}
-			}
-		};
-	
-		return this.each(function() {
-			if (this.selectize) return;
-	
-			var instance;
-			var $input = $(this);
-			var tag_name = this.tagName.toLowerCase();
-			var placeholder = $input.attr('placeholder') || $input.attr('data-placeholder');
-			if (!placeholder && !settings.allowEmptyOption) {
-				placeholder = $input.children('option[value=""]').text();
-			}
-	
-			var settings_element = {
-				'placeholder' : placeholder,
-				'options'     : {},
-				'optgroups'   : {},
-				'items'       : []
-			};
-	
-			if (tag_name === 'select') {
-				init_select($input, settings_element);
-			} else {
-				init_textbox($input, settings_element);
-			}
-	
-			instance = new Selectize($input, $.extend(true, {}, defaults, settings_element, settings_user));
-		});
-	};
-	
-	$.fn.selectize.defaults = Selectize.defaults;
-	
-	
-	Selectize.define('drag_drop', function(options) {
-		if (!$.fn.sortable) throw new Error('The "drag_drop" plugin requires jQuery UI "sortable".');
-		if (this.settings.mode !== 'multi') return;
-		var self = this;
-	
-		self.lock = (function() {
-			var original = self.lock;
-			return function() {
-				var sortable = self.$control.data('sortable');
-				if (sortable) sortable.disable();
-				return original.apply(self, arguments);
-			};
-		})();
-	
-		self.unlock = (function() {
-			var original = self.unlock;
-			return function() {
-				var sortable = self.$control.data('sortable');
-				if (sortable) sortable.enable();
-				return original.apply(self, arguments);
-			};
-		})();
-	
-		self.setup = (function() {
-			var original = self.setup;
-			return function() {
-				original.apply(this, arguments);
-	
-				var $control = self.$control.sortable({
-					items: '[data-value]',
-					forcePlaceholderSize: true,
-					disabled: self.isLocked,
-					start: function(e, ui) {
-						ui.placeholder.css('width', ui.helper.css('width'));
-						$control.css({overflow: 'visible'});
-					},
-					stop: function() {
-						$control.css({overflow: 'hidden'});
-						var active = self.$activeItems ? self.$activeItems.slice() : null;
-						var values = [];
-						$control.children('[data-value]').each(function() {
-							values.push($(this).attr('data-value'));
-						});
-						self.setValue(values);
-						self.setActiveItem(active);
-					}
-				});
-			};
-		})();
-	
-	});
-	
-	Selectize.define('dropdown_header', function(options) {
-		var self = this;
-	
-		options = $.extend({
-			title         : 'Untitled',
-			headerClass   : 'selectize-dropdown-header',
-			titleRowClass : 'selectize-dropdown-header-title',
-			labelClass    : 'selectize-dropdown-header-label',
-			closeClass    : 'selectize-dropdown-header-close',
-	
-			html: function(data) {
-				return (
-					'<div class="' + data.headerClass + '">' +
-						'<div class="' + data.titleRowClass + '">' +
-							'<span class="' + data.labelClass + '">' + data.title + '</span>' +
-							'<a href="javascript:void(0)" class="' + data.closeClass + '">&times;</a>' +
-						'</div>' +
-					'</div>'
-				);
-			}
-		}, options);
-	
-		self.setup = (function() {
-			var original = self.setup;
-			return function() {
-				original.apply(self, arguments);
-				self.$dropdown_header = $(options.html(options));
-				self.$dropdown.prepend(self.$dropdown_header);
-			};
-		})();
-	
-	});
-	
-	Selectize.define('optgroup_columns', function(options) {
-		var self = this;
-	
-		options = $.extend({
-			equalizeWidth  : true,
-			equalizeHeight : true
-		}, options);
-	
-		this.getAdjacentOption = function($option, direction) {
-			var $options = $option.closest('[data-group]').find('[data-selectable]');
-			var index    = $options.index($option) + direction;
-	
-			return index >= 0 && index < $options.length ? $options.eq(index) : $();
-		};
-	
-		this.onKeyDown = (function() {
-			var original = self.onKeyDown;
-			return function(e) {
-				var index, $option, $options, $optgroup;
-	
-				if (this.isOpen && (e.keyCode === KEY_LEFT || e.keyCode === KEY_RIGHT)) {
-					self.ignoreHover = true;
-					$optgroup = this.$activeOption.closest('[data-group]');
-					index = $optgroup.find('[data-selectable]').index(this.$activeOption);
-	
-					if(e.keyCode === KEY_LEFT) {
-						$optgroup = $optgroup.prev('[data-group]');
-					} else {
-						$optgroup = $optgroup.next('[data-group]');
-					}
-	
-					$options = $optgroup.find('[data-selectable]');
-					$option  = $options.eq(Math.min($options.length - 1, index));
-					if ($option.length) {
-						this.setActiveOption($option);
-					}
-					return;
-				}
-	
-				return original.apply(this, arguments);
-			};
-		})();
-	
-		var getScrollbarWidth = function() {
-			var div;
-			var width = getScrollbarWidth.width;
-			var doc = document;
-	
-			if (typeof width === 'undefined') {
-				div = doc.createElement('div');
-				div.innerHTML = '<div style="width:50px;height:50px;position:absolute;left:-50px;top:-50px;overflow:auto;"><div style="width:1px;height:100px;"></div></div>';
-				div = div.firstChild;
-				doc.body.appendChild(div);
-				width = getScrollbarWidth.width = div.offsetWidth - div.clientWidth;
-				doc.body.removeChild(div);
-			}
-			return width;
-		};
-	
-		var equalizeSizes = function() {
-			var i, n, height_max, width, width_last, width_parent, $optgroups;
-	
-			$optgroups = $('[data-group]', self.$dropdown_content);
-			n = $optgroups.length;
-			if (!n || !self.$dropdown_content.width()) return;
-	
-			if (options.equalizeHeight) {
-				height_max = 0;
-				for (i = 0; i < n; i++) {
-					height_max = Math.max(height_max, $optgroups.eq(i).height());
-				}
-				$optgroups.css({height: height_max});
-			}
-	
-			if (options.equalizeWidth) {
-				width_parent = self.$dropdown_content.innerWidth() - getScrollbarWidth();
-				width = Math.round(width_parent / n);
-				$optgroups.css({width: width});
-				if (n > 1) {
-					width_last = width_parent - width * (n - 1);
-					$optgroups.eq(n - 1).css({width: width_last});
-				}
-			}
-		};
-	
-		if (options.equalizeHeight || options.equalizeWidth) {
-			hook.after(this, 'positionDropdown', equalizeSizes);
-			hook.after(this, 'refreshOptions', equalizeSizes);
-		}
-	
-	
-	});
-	
-	Selectize.define('remove_button', function(options) {
-		if (this.settings.mode === 'single') return;
-	
-		options = $.extend({
-			label     : '&times;',
-			title     : 'Remove',
-			className : 'remove',
-			append    : true
-		}, options);
-	
-		var self = this;
-		var html = '<a href="javascript:void(0)" class="' + options.className + '" tabindex="-1" title="' + escape_html(options.title) + '">' + options.label + '</a>';
-	
-		/**
-		 * Appends an element as a child (with raw HTML).
-		 *
-		 * @param {string} html_container
-		 * @param {string} html_element
-		 * @return {string}
-		 */
-		var append = function(html_container, html_element) {
-			var pos = html_container.search(/(<\/[^>]+>\s*)$/);
-			return html_container.substring(0, pos) + html_element + html_container.substring(pos);
-		};
-	
-		this.setup = (function() {
-			var original = self.setup;
-			return function() {
-				// override the item rendering method to add the button to each
-				if (options.append) {
-					var render_item = self.settings.render.item;
-					self.settings.render.item = function(data) {
-						return append(render_item.apply(this, arguments), html);
-					};
-				}
-	
-				original.apply(this, arguments);
-	
-				// add event listener
-				this.$control.on('click', '.' + options.className, function(e) {
-					e.preventDefault();
-					if (self.isLocked) return;
-	
-					var $item = $(e.currentTarget).parent();
-					self.setActiveItem($item);
-					if (self.deleteSelection()) {
-						self.setCaret(self.items.length);
-					}
-				});
-	
-			};
-		})();
-	
-	});
-	
-	Selectize.define('restore_on_backspace', function(options) {
-		var self = this;
-	
-		options.text = options.text || function(option) {
-			return option[this.settings.labelField];
-		};
-	
-		this.onKeyDown = (function(e) {
-			var original = self.onKeyDown;
-			return function(e) {
-				var index, option;
-				if (e.keyCode === KEY_BACKSPACE && this.$control_input.val() === '' && !this.$activeItems.length) {
-					index = this.caretPos - 1;
-					if (index >= 0 && index < this.items.length) {
-						option = this.options[this.items[index]];
-						if (this.deleteSelection(e)) {
-							this.setTextboxValue(options.text.apply(this, [option]));
-							this.refreshOptions(true);
-						}
-						e.preventDefault();
-						return;
-					}
-				}
-				return original.apply(this, arguments);
-			};
-		})();
-	});
-
-	return Selectize;
-}));
-(function(){
-
-    'use strict';
-
-    var
-        /** @const */ FormatOptions = [
-            'decimals',
-            'thousand',
-            'mark',
-            'prefix',
-            'postfix',
-            'encoder',
-            'decoder',
-            'negativeBefore',
-            'negative',
-            'edit',
-            'undo'
-        ];
-
-// General
-
-    // Reverse a string
-    function strReverse ( a ) {
-        return a.split('').reverse().join('');
-    }
-
-    // Check if a string starts with a specified prefix.
-    function strStartsWith ( input, match ) {
-        return input.substring(0, match.length) === match;
-    }
-
-    // Check is a string ends in a specified postfix.
-    function strEndsWith ( input, match ) {
-        return input.slice(-1 * match.length) === match;
-    }
-
-    // Throw an error if formatting options are incompatible.
-    function throwEqualError( F, a, b ) {
-        if ( (F[a] || F[b]) && (F[a] === F[b]) ) {
-            throw new Error(a);
-        }
-    }
-
-    // Check if a number is finite and not NaN
-    function isValidNumber ( input ) {
-        return typeof input === 'number' && isFinite( input );
-    }
-
-    // Provide rounding-accurate toFixed method.
-    function toFixed ( value, decimals ) {
-        var scale = Math.pow(10, decimals);
-        return ( Math.round(value * scale) / scale).toFixed( decimals );
-    }
-
-
-// Formatting
-
-    // Accept a number as input, output formatted string.
-    function formatTo ( decimals, thousand, mark, prefix, postfix, encoder, decoder, negativeBefore, negative, edit, undo, input ) {
-
-        var originalInput = input, inputIsNegative, inputPieces, inputBase, inputDecimals = '', output = '';
-
-        // Apply user encoder to the input.
-        // Expected outcome: number.
-        if ( encoder ) {
-            input = encoder(input);
-        }
-
-        // Stop if no valid number was provided, the number is infinite or NaN.
-        if ( !isValidNumber(input) ) {
-            return false;
-        }
-
-        // Rounding away decimals might cause a value of -0
-        // when using very small ranges. Remove those cases.
-        if ( decimals && parseFloat(input.toFixed(decimals)) === 0 ) {
-            input = 0;
-        }
-
-        // Formatting is done on absolute numbers,
-        // decorated by an optional negative symbol.
-        if ( input < 0 ) {
-            inputIsNegative = true;
-            input = Math.abs(input);
-        }
-
-        // Reduce the number of decimals to the specified option.
-        if ( decimals !== false ) {
-            input = toFixed( input, decimals );
-        }
-
-        // Transform the number into a string, so it can be split.
-        input = input.toString();
-
-        // Break the number on the decimal separator.
-        if ( input.indexOf('.') !== -1 ) {
-            inputPieces = input.split('.');
-
-            inputBase = inputPieces[0];
-
-            if ( mark ) {
-                inputDecimals = mark + inputPieces[1];
-            }
-
-        } else {
-
-            // If it isn't split, the entire number will do.
-            inputBase = input;
-        }
-
-        // Group numbers in sets of three.
-        if ( thousand ) {
-            inputBase = strReverse(inputBase).match(/.{1,3}/g);
-            inputBase = strReverse(inputBase.join( strReverse( thousand ) ));
-        }
-
-        // If the number is negative, prefix with negation symbol.
-        if ( inputIsNegative && negativeBefore ) {
-            output += negativeBefore;
-        }
-
-        // Prefix the number
-        if ( prefix ) {
-            output += prefix;
-        }
-
-        // Normal negative option comes after the prefix. Defaults to '-'.
-        if ( inputIsNegative && negative ) {
-            output += negative;
-        }
-
-        // Append the actual number.
-        output += inputBase;
-        output += inputDecimals;
-
-        // Apply the postfix.
-        if ( postfix ) {
-            output += postfix;
-        }
-
-        // Run the output through a user-specified post-formatter.
-        if ( edit ) {
-            output = edit ( output, originalInput );
-        }
-
-        // All done.
-        return output;
-    }
-
-    // Accept a sting as input, output decoded number.
-    function formatFrom ( decimals, thousand, mark, prefix, postfix, encoder, decoder, negativeBefore, negative, edit, undo, input ) {
-
-        var originalInput = input, inputIsNegative, output = '';
-
-        // User defined pre-decoder. Result must be a non empty string.
-        if ( undo ) {
-            input = undo(input);
-        }
-
-        // Test the input. Can't be empty.
-        if ( !input || typeof input !== 'string' ) {
-            return false;
-        }
-
-        // If the string starts with the negativeBefore value: remove it.
-        // Remember is was there, the number is negative.
-        if ( negativeBefore && strStartsWith(input, negativeBefore) ) {
-            input = input.replace(negativeBefore, '');
-            inputIsNegative = true;
-        }
-
-        // Repeat the same procedure for the prefix.
-        if ( prefix && strStartsWith(input, prefix) ) {
-            input = input.replace(prefix, '');
-        }
-
-        // And again for negative.
-        if ( negative && strStartsWith(input, negative) ) {
-            input = input.replace(negative, '');
-            inputIsNegative = true;
-        }
-
-        // Remove the postfix.
-        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice
-        if ( postfix && strEndsWith(input, postfix) ) {
-            input = input.slice(0, -1 * postfix.length);
-        }
-
-        // Remove the thousand grouping.
-        if ( thousand ) {
-            input = input.split(thousand).join('');
-        }
-
-        // Set the decimal separator back to period.
-        if ( mark ) {
-            input = input.replace(mark, '.');
-        }
-
-        // Prepend the negative symbol.
-        if ( inputIsNegative ) {
-            output += '-';
-        }
-
-        // Add the number
-        output += input;
-
-        // Trim all non-numeric characters (allow '.' and '-');
-        output = output.replace(/[^0-9\.\-.]/g, '');
-
-        // The value contains no parse-able number.
-        if ( output === '' ) {
-            return false;
-        }
-
-        // Covert to number.
-        output = Number(output);
-
-        // Run the user-specified post-decoder.
-        if ( decoder ) {
-            output = decoder(output);
-        }
-
-        // Check is the output is valid, otherwise: return false.
-        if ( !isValidNumber(output) ) {
-            return false;
-        }
-
-        return output;
-    }
-
-
-// Framework
-
-    // Validate formatting options
-    function validate ( inputOptions ) {
-
-        var i, optionName, optionValue,
-            filteredOptions = {};
-
-        for ( i = 0; i < FormatOptions.length; i+=1 ) {
-
-            optionName = FormatOptions[i];
-            optionValue = inputOptions[optionName];
-
-            if ( optionValue === undefined ) {
-
-                // Only default if negativeBefore isn't set.
-                if ( optionName === 'negative' && !filteredOptions.negativeBefore ) {
-                    filteredOptions[optionName] = '-';
-                    // Don't set a default for mark when 'thousand' is set.
-                } else if ( optionName === 'mark' && filteredOptions.thousand !== '.' ) {
-                    filteredOptions[optionName] = '.';
-                } else {
-                    filteredOptions[optionName] = false;
-                }
-
-                // Floating points in JS are stable up to 7 decimals.
-            } else if ( optionName === 'decimals' ) {
-                if ( optionValue >= 0 && optionValue < 8 ) {
-                    filteredOptions[optionName] = optionValue;
-                } else {
-                    throw new Error(optionName);
-                }
-
-                // These options, when provided, must be functions.
-            } else if ( optionName === 'encoder' || optionName === 'decoder' || optionName === 'edit' || optionName === 'undo' ) {
-                if ( typeof optionValue === 'function' ) {
-                    filteredOptions[optionName] = optionValue;
-                } else {
-                    throw new Error(optionName);
-                }
-
-                // Other options are strings.
-            } else {
-
-                if ( typeof optionValue === 'string' ) {
-                    filteredOptions[optionName] = optionValue;
-                } else {
-                    throw new Error(optionName);
-                }
-            }
-        }
-
-        // Some values can't be extracted from a
-        // string if certain combinations are present.
-        throwEqualError(filteredOptions, 'mark', 'thousand');
-        throwEqualError(filteredOptions, 'prefix', 'negative');
-        throwEqualError(filteredOptions, 'prefix', 'negativeBefore');
-
-        return filteredOptions;
-    }
-
-    // Pass all options as function arguments
-    function passAll ( options, method, input ) {
-        var i, args = [];
-
-        // Add all options in order of FormatOptions
-        for ( i = 0; i < FormatOptions.length; i+=1 ) {
-            args.push(options[FormatOptions[i]]);
-        }
-
-        // Append the input, then call the method, presenting all
-        // options as arguments.
-        args.push(input);
-        return method.apply('', args);
-    }
-
-    /** @constructor */
-    function wNumb ( options ) {
-
-        if ( !(this instanceof wNumb) ) {
-            return new wNumb ( options );
-        }
-
-        if ( typeof options !== "object" ) {
-            return;
-        }
-
-        options = validate(options);
-
-        // Call 'formatTo' with proper arguments.
-        this.to = function ( input ) {
-            return passAll(options, formatTo, input);
-        };
-
-        // Call 'formatFrom' with proper arguments.
-        this.from = function ( input ) {
-            return passAll(options, formatFrom, input);
-        };
-    }
-
-    /** @export */
-    window.wNumb = wNumb;
-
-}());
-/*jslint browser: true */
-/*jslint white: true */
-
-
-(function( $ ){
-
-    'use strict';
-
-// Helpers
-
-    // Test in an object is an instance of jQuery or Zepto.
-    function isInstance ( a ) {
-        return a instanceof $ || ( $.zepto && $.zepto.isZ(a) );
-    }
-
-
-// Link types
-
-    function fromPrefix ( target, method ) {
-
-        // If target is a string, a new hidden input will be created.
-        if ( typeof target === 'string' && target.indexOf('-inline-') === 0 ) {
-
-            // By default, use the 'html' method.
-            this.method = method || 'html';
-
-            // Use jQuery to create the element
-            this.target = this.el = $( target.replace('-inline-', '') || '<div/>' );
-
-            return true;
-        }
-    }
-
-    function fromString ( target ) {
-
-        // If the string doesn't begin with '-', which is reserved, add a new hidden input.
-        if ( typeof target === 'string' && target.indexOf('-') !== 0 ) {
-
-            this.method = 'val';
-
-            var element = document.createElement('input');
-            element.name = target;
-            element.type = 'hidden';
-            this.target = this.el = $(element);
-
-            return true;
-        }
-    }
-
-    function fromFunction ( target ) {
-
-        // The target can also be a function, which will be called.
-        if ( typeof target === 'function' ) {
-            this.target = false;
-            this.method = target;
-
-            return true;
-        }
-    }
-
-    function fromInstance ( target, method ) {
-
-        if ( isInstance( target ) && !method ) {
-
-            // If a jQuery/Zepto input element is provided, but no method is set,
-            // the element can assume it needs to respond to 'change'...
-            if ( target.is('input, select, textarea') ) {
-
-                // Default to .val if this is an input element.
-                this.method = 'val';
-
-                // Fire the API changehandler when the target changes.
-                this.target = target.on('change.liblink', this.changeHandler);
-
-            } else {
-
-                this.target = target;
-
-                // If no method is set, and we are not auto-binding an input, default to 'html'.
-                this.method = 'html';
-            }
-
-            return true;
-        }
-    }
-
-    function fromInstanceMethod ( target, method ) {
-
-        // The method must exist on the element.
-        if ( isInstance( target ) &&
-            (typeof method === 'function' ||
-            (typeof method === 'string' && target[method]))
-        ) {
-            this.method = method;
-            this.target = target;
-
-            return true;
-        }
-    }
-
-    var
-        /** @const */
-        creationFunctions = [fromPrefix, fromString, fromFunction, fromInstance, fromInstanceMethod];
-
-
-// Link Instance
-
-    /** @constructor */
-    function Link ( target, method, format ) {
-
-        var that = this, valid = false;
-
-        // Forward calls within scope.
-        this.changeHandler = function ( changeEvent ) {
-            var decodedValue = that.formatInstance.from( $(this).val() );
-
-            // If the value is invalid, stop this event, as well as it's propagation.
-            if ( decodedValue === false || isNaN(decodedValue) ) {
-
-                // Reset the value.
-                $(this).val(that.lastSetValue);
-                return false;
-            }
-
-            that.changeHandlerMethod.call( '', changeEvent, decodedValue );
-        };
-
-        // See if this Link needs individual targets based on its usage.
-        // If so, return the element that needs to be copied by the
-        // implementing interface.
-        // Default the element to false.
-        this.el = false;
-
-        // Store the formatter, or use the default.
-        this.formatInstance = format;
-
-        // Try all Link types.
-        /*jslint unparam: true*/
-        $.each(creationFunctions, function(i, fn){
-            valid = fn.call(that, target, method);
-            return !valid;
-        });
-        /*jslint unparam: false*/
-
-        // Nothing matched, throw error.
-        if ( !valid ) {
-            throw new RangeError("(Link) Invalid Link.");
-        }
-    }
-
-    // Provides external items with the object value.
-    Link.prototype.set = function ( value ) {
-
-        // Ignore the value, so only the passed-on arguments remain.
-        var args = Array.prototype.slice.call( arguments ),
-            additionalArgs = args.slice(1);
-
-        // Store some values. The actual, numerical value,
-        // the formatted value and the parameters for use in 'resetValue'.
-        // Slice additionalArgs to break the relation.
-        this.lastSetValue = this.formatInstance.to( value );
-
-        // Prepend the value to the function arguments.
-        additionalArgs.unshift(
-            this.lastSetValue
-        );
-
-        // When target is undefined, the target was a function.
-        // In that case, provided the object as the calling scope.
-        // Branch between writing to a function or an object.
-        ( typeof this.method === 'function' ?
-            this.method :
-            this.target[ this.method ] ).apply( this.target, additionalArgs );
-    };
-
-
-// Developer API
-
-    /** @constructor */
-    function LinkAPI ( origin ) {
-        this.items = [];
-        this.elements = [];
-        this.origin = origin;
-    }
-
-    LinkAPI.prototype.push = function( item, element ) {
-        this.items.push(item);
-
-        // Prevent 'false' elements
-        if ( element ) {
-            this.elements.push(element);
-        }
-    };
-
-    LinkAPI.prototype.reconfirm = function ( flag ) {
-        var i;
-        for ( i = 0; i < this.elements.length; i += 1 ) {
-            this.origin.LinkConfirm(flag, this.elements[i]);
-        }
-    };
-
-    LinkAPI.prototype.remove = function ( flag ) {
-        var i;
-        for ( i = 0; i < this.items.length; i += 1 ) {
-            this.items[i].target.off('.liblink');
-        }
-        for ( i = 0; i < this.elements.length; i += 1 ) {
-            this.elements[i].remove();
-        }
-    };
-
-    LinkAPI.prototype.change = function ( value ) {
-
-        if ( this.origin.LinkIsEmitting ) {
-            return false;
-        }
-
-        this.origin.LinkIsEmitting = true;
-
-        var args = Array.prototype.slice.call( arguments, 1 ), i;
-        args.unshift( value );
-
-        // Write values to serialization Links.
-        // Convert the value to the correct relative representation.
-        for ( i = 0; i < this.items.length; i += 1 ) {
-            this.items[i].set.apply(this.items[i], args);
-        }
-
-        this.origin.LinkIsEmitting = false;
-    };
-
-
-// jQuery plugin
-
-    function binder ( flag, target, method, format ){
-
-        if ( flag === 0 ) {
-            flag = this.LinkDefaultFlag;
-        }
-
-        // Create a list of API's (if it didn't exist yet);
-        if ( !this.linkAPI ) {
-            this.linkAPI = {};
-        }
-
-        // Add an API point.
-        if ( !this.linkAPI[flag] ) {
-            this.linkAPI[flag] = new LinkAPI(this);
-        }
-
-        var linkInstance = new Link ( target, method, format || this.LinkDefaultFormatter );
-
-        // Default the calling scope to the linked object.
-        if ( !linkInstance.target ) {
-            linkInstance.target = $(this);
-        }
-
-        // If the Link requires creation of a new element,
-        // Pass the element and request confirmation to get the changehandler.
-        // Set the method to be called when a Link changes.
-        linkInstance.changeHandlerMethod = this.LinkConfirm( flag, linkInstance.el );
-
-        // Store the linkInstance in the flagged list.
-        this.linkAPI[flag].push( linkInstance, linkInstance.el );
-
-        // Now that Link have been connected, request an update.
-        this.LinkUpdate( flag );
-    }
-
-    /** @export */
-    $.fn.Link = function( flag ){
-
-        var that = this;
-
-        // Delete all linkAPI
-        if ( flag === false ) {
-
-            return that.each(function(){
-
-                // .Link(false) can be called on elements without Links.
-                // When that happens, the objects can't be looped.
-                if ( !this.linkAPI ) {
-                    return;
-                }
-
-                $.map(this.linkAPI, function(api){
-                    api.remove();
-                });
-
-                delete this.linkAPI;
-            });
-        }
-
-        if ( flag === undefined ) {
-
-            flag = 0;
-
-        } else if ( typeof flag !== 'string') {
-
-            throw new Error("Flag must be string.");
-        }
-
-        return {
-            to: function( a, b, c ){
-                return that.each(function(){
-                    binder.call(this, flag, a, b, c);
-                });
-            }
-        };
-    };
-
-}( window.jQuery || window.Zepto ));
-/*! noUiSlider - 7.0.2 - 2014-09-09 09:58:13 */
-
-/*jslint browser: true */
-/*jslint white: true */
-
-
-(function( $ ){
-
-    'use strict';
-
-
-    // Removes duplicates from an array.
-    function unique(array) {
-        return $.grep(array, function(el, index) {
-            return index === $.inArray(el, array);
-        });
-    }
-
-    // Round a value to the closest 'to'.
-    function closest ( value, to ) {
-        return Math.round(value / to) * to;
-    }
-
-    // Checks whether a value is numerical.
-    function isNumeric ( a ) {
-        return typeof a === 'number' && !isNaN( a ) && isFinite( a );
-    }
-
-    // Rounds a number to 7 supported decimals.
-    function accurateNumber( number ) {
-        var p = Math.pow(10, 7);
-        return Number((Math.round(number*p)/p).toFixed(7));
-    }
-
-    // Sets a class and removes it after [duration] ms.
-    function addClassFor ( element, className, duration ) {
-        element.addClass(className);
-        setTimeout(function(){
-            element.removeClass(className);
-        }, duration);
-    }
-
-    // Limits a value to 0 - 100
-    function limit ( a ) {
-        return Math.max(Math.min(a, 100), 0);
-    }
-
-    // Wraps a variable as an array, if it isn't one yet.
-    function asArray ( a ) {
-        return $.isArray(a) ? a : [a];
-    }
-
-
-    var
-    // Cache the document selector;
-        /** @const */
-        doc = $(document),
-    // Make a backup of the original jQuery/Zepto .val() method.
-        /** @const */
-        $val = $.fn.val,
-    // Namespace for binding and unbinding slider events;
-        /** @const */
-        namespace = '.nui',
-    // Determine the events to bind. IE11 implements pointerEvents without
-    // a prefix, which breaks compatibility with the IE10 implementation.
-        /** @const */
-        actions = window.navigator.pointerEnabled ? {
-            start: 'pointerdown',
-            move: 'pointermove',
-            end: 'pointerup'
-        } : window.navigator.msPointerEnabled ? {
-            start: 'MSPointerDown',
-            move: 'MSPointerMove',
-            end: 'MSPointerUp'
-        } : {
-            start: 'mousedown touchstart',
-            move: 'mousemove touchmove',
-            end: 'mouseup touchend'
-        },
-    // Re-usable list of classes;
-        /** @const */
-        Classes = [
-            /*  0 */  'noUi-target'
-            /*  1 */ ,'noUi-base'
-            /*  2 */ ,'noUi-origin'
-            /*  3 */ ,'noUi-handle'
-            /*  4 */ ,'noUi-horizontal'
-            /*  5 */ ,'noUi-vertical'
-            /*  6 */ ,'noUi-background'
-            /*  7 */ ,'noUi-connect'
-            /*  8 */ ,'noUi-ltr'
-            /*  9 */ ,'noUi-rtl'
-            /* 10 */ ,'noUi-dragable'
-            /* 11 */ ,''
-            /* 12 */ ,'noUi-state-drag'
-            /* 13 */ ,''
-            /* 14 */ ,'noUi-state-tap'
-            /* 15 */ ,'noUi-active'
-            /* 16 */ ,''
-            /* 17 */ ,'noUi-stacking'
-        ];
-
-
-// Value calculation
-
-    // Determine the size of a sub-range in relation to a full range.
-    function subRangeRatio ( pa, pb ) {
-        return (100 / (pb - pa));
-    }
-
-    // (percentage) How many percent is this value of this range?
-    function fromPercentage ( range, value ) {
-        return (value * 100) / ( range[1] - range[0] );
-    }
-
-    // (percentage) Where is this value on this range?
-    function toPercentage ( range, value ) {
-        return fromPercentage( range, range[0] < 0 ?
-        value + Math.abs(range[0]) :
-        value - range[0] );
-    }
-
-    // (value) How much is this percentage on this range?
-    function isPercentage ( range, value ) {
-        return ((value * ( range[1] - range[0] )) / 100) + range[0];
-    }
-
-
-// Range conversion
-
-    function getJ ( value, arr ) {
-
-        var j = 1;
-
-        while ( value >= arr[j] ){
-            j += 1;
-        }
-
-        return j;
-    }
-
-    // (percentage) Input a value, find where, on a scale of 0-100, it applies.
-    function toStepping ( xVal, xPct, value ) {
-
-        if ( value >= xVal.slice(-1)[0] ){
-            return 100;
-        }
-
-        var j = getJ( value, xVal ), va, vb, pa, pb;
-
-        va = xVal[j-1];
-        vb = xVal[j];
-        pa = xPct[j-1];
-        pb = xPct[j];
-
-        return pa + (toPercentage([va, vb], value) / subRangeRatio (pa, pb));
-    }
-
-    // (value) Input a percentage, find where it is on the specified range.
-    function fromStepping ( xVal, xPct, value ) {
-
-        // There is no range group that fits 100
-        if ( value >= 100 ){
-            return xVal.slice(-1)[0];
-        }
-
-        var j = getJ( value, xPct ), va, vb, pa, pb;
-
-        va = xVal[j-1];
-        vb = xVal[j];
-        pa = xPct[j-1];
-        pb = xPct[j];
-
-        return isPercentage([va, vb], (value - pa) * subRangeRatio (pa, pb));
-    }
-
-    // (percentage) Get the step that applies at a certain value.
-    function getStep ( xPct, xSteps, snap, value ) {
-
-        if ( value === 100 ) {
-            return value;
-        }
-
-        var j = getJ( value, xPct ), a, b;
-
-        // If 'snap' is set, steps are used as fixed points on the slider.
-        if ( snap ) {
-
-            a = xPct[j-1];
-            b = xPct[j];
-
-            // Find the closest position, a or b.
-            if ((value - a) > ((b-a)/2)){
-                return b;
-            }
-
-            return a;
-        }
-
-        if ( !xSteps[j-1] ){
-            return value;
-        }
-
-        return xPct[j-1] + closest(
-            value - xPct[j-1],
-            xSteps[j-1]
-        );
-    }
-
-
-// Entry parsing
-
-    function handleEntryPoint ( index, value, that ) {
-
-        var percentage;
-
-        // Wrap numerical input in an array.
-        if ( typeof value === "number" ) {
-            value = [value];
-        }
-
-        // Reject any invalid input, by testing whether value is an array.
-        if ( Object.prototype.toString.call( value ) !== '[object Array]' ){
-            throw new Error("noUiSlider: 'range' contains invalid value.");
-        }
-
-        // Covert min/max syntax to 0 and 100.
-        if ( index === 'min' ) {
-            percentage = 0;
-        } else if ( index === 'max' ) {
-            percentage = 100;
-        } else {
-            percentage = parseFloat( index );
-        }
-
-        // Check for correct input.
-        if ( !isNumeric( percentage ) || !isNumeric( value[0] ) ) {
-            throw new Error("noUiSlider: 'range' value isn't numeric.");
-        }
-
-        // Store values.
-        that.xPct.push( percentage );
-        that.xVal.push( value[0] );
-
-        // NaN will evaluate to false too, but to keep
-        // logging clear, set step explicitly. Make sure
-        // not to override the 'step' setting with false.
-        if ( !percentage ) {
-            if ( !isNaN( value[1] ) ) {
-                that.xSteps[0] = value[1];
-            }
-        } else {
-            that.xSteps.push( isNaN(value[1]) ? false : value[1] );
-        }
-    }
-
-    function handleStepPoint ( i, n, that ) {
-
-        // Ignore 'false' stepping.
-        if ( !n ) {
-            return true;
-        }
-
-        // Factor to range ratio
-        that.xSteps[i] = fromPercentage([
-            that.xVal[i]
-            ,that.xVal[i+1]
-        ], n) / subRangeRatio (
-            that.xPct[i],
-            that.xPct[i+1] );
-    }
-
-
-// Interface
-
-    // The interface to Spectrum handles all direction-based
-    // conversions, so the above values are unaware.
-
-    function Spectrum ( entry, snap, direction, singleStep ) {
-
-        this.xPct = [];
-        this.xVal = [];
-        this.xSteps = [ singleStep || false ];
-        this.xNumSteps = [ false ];
-
-        this.snap = snap;
-        this.direction = direction;
-
-        var that = this, index;
-
-        // Loop all entries.
-        for ( index in entry ) {
-            if ( entry.hasOwnProperty(index) ) {
-                handleEntryPoint(index, entry[index], that);
-            }
-        }
-
-        // Store the actual step values.
-        that.xNumSteps = that.xSteps.slice(0);
-
-        for ( index in that.xNumSteps ) {
-            if ( that.xNumSteps.hasOwnProperty(index) ) {
-                handleStepPoint(Number(index), that.xNumSteps[index], that);
-            }
-        }
-    }
-
-    Spectrum.prototype.getMargin = function ( value ) {
-        return this.xPct.length === 2 ? fromPercentage(this.xVal, value) : false;
-    };
-
-    Spectrum.prototype.toStepping = function ( value ) {
-
-        value = toStepping( this.xVal, this.xPct, value );
-
-        // Invert the value if this is a right-to-left slider.
-        if ( this.direction ) {
-            value = 100 - value;
-        }
-
-        return value;
-    };
-
-    Spectrum.prototype.fromStepping = function ( value ) {
-
-        // Invert the value if this is a right-to-left slider.
-        if ( this.direction ) {
-            value = 100 - value;
-        }
-
-        return accurateNumber(fromStepping( this.xVal, this.xPct, value ));
-    };
-
-    Spectrum.prototype.getStep = function ( value ) {
-
-        // Find the proper step for rtl sliders by search in inverse direction.
-        // Fixes issue #262.
-        if ( this.direction ) {
-            value = 100 - value;
-        }
-
-        value = getStep(this.xPct, this.xSteps, this.snap, value );
-
-        if ( this.direction ) {
-            value = 100 - value;
-        }
-
-        return value;
-    };
-
-    Spectrum.prototype.getApplicableStep = function ( value ) {
-
-        // If the value is 100%, return the negative step twice.
-        var j = getJ(value, this.xPct), offset = value === 100 ? 2 : 1;
-        return [this.xNumSteps[j-2], this.xVal[j-offset], this.xNumSteps[j-offset]];
-    };
-
-    // Outside testing
-    Spectrum.prototype.convert = function ( value ) {
-        return this.getStep(this.toStepping(value));
-    };
-
-    /*	Every input option is tested and parsed. This'll prevent
-     endless validation in internal methods. These tests are
-     structured with an item for every option available. An
-     option can be marked as required by setting the 'r' flag.
-     The testing function is provided with three arguments:
-     - The provided value for the option;
-     - A reference to the options object;
-     - The name for the option;
-
-     The testing function returns false when an error is detected,
-     or true when everything is OK. It can also modify the option
-     object, to make sure all values can be correctly looped elsewhere. */
-
-    /** @const */
-    var defaultFormatter = { 'to': function( value ){
-        return value.toFixed(2);
-    }, 'from': Number };
-
-    function testStep ( parsed, entry ) {
-
-        if ( !isNumeric( entry ) ) {
-            throw new Error("noUiSlider: 'step' is not numeric.");
-        }
-
-        // The step option can still be used to set stepping
-        // for linear sliders. Overwritten if set in 'range'.
-        parsed.singleStep = entry;
-    }
-
-    function testRange ( parsed, entry ) {
-
-        // Filter incorrect input.
-        if ( typeof entry !== 'object' || $.isArray(entry) ) {
-            throw new Error("noUiSlider: 'range' is not an object.");
-        }
-
-        // Catch missing start or end.
-        if ( entry.min === undefined || entry.max === undefined ) {
-            throw new Error("noUiSlider: Missing 'min' or 'max' in 'range'.");
-        }
-
-        parsed.spectrum = new Spectrum(entry, parsed.snap, parsed.dir, parsed.singleStep);
-    }
-
-    function testStart ( parsed, entry ) {
-
-        entry = asArray(entry);
-
-        // Validate input. Values aren't tested, as the public .val method
-        // will always provide a valid location.
-        if ( !$.isArray( entry ) || !entry.length || entry.length > 2 ) {
-            throw new Error("noUiSlider: 'start' option is incorrect.");
-        }
-
-        // Store the number of handles.
-        parsed.handles = entry.length;
-
-        // When the slider is initialized, the .val method will
-        // be called with the start options.
-        parsed.start = entry;
-    }
-
-    function testSnap ( parsed, entry ) {
-
-        // Enforce 100% stepping within subranges.
-        parsed.snap = entry;
-
-        if ( typeof entry !== 'boolean' ){
-            throw new Error("noUiSlider: 'snap' option must be a boolean.");
-        }
-    }
-
-    function testAnimate ( parsed, entry ) {
-
-        // Enforce 100% stepping within subranges.
-        parsed.animate = entry;
-
-        if ( typeof entry !== 'boolean' ){
-            throw new Error("noUiSlider: 'animate' option must be a boolean.");
-        }
-    }
-
-    function testConnect ( parsed, entry ) {
-
-        if ( entry === 'lower' && parsed.handles === 1 ) {
-            parsed.connect = 1;
-        } else if ( entry === 'upper' && parsed.handles === 1 ) {
-            parsed.connect = 2;
-        } else if ( entry === true && parsed.handles === 2 ) {
-            parsed.connect = 3;
-        } else if ( entry === false ) {
-            parsed.connect = 0;
-        } else {
-            throw new Error("noUiSlider: 'connect' option doesn't match handle count.");
-        }
-    }
-
-    function testOrientation ( parsed, entry ) {
-
-        // Set orientation to an a numerical value for easy
-        // array selection.
-        switch ( entry ){
-            case 'horizontal':
-                parsed.ort = 0;
-                break;
-            case 'vertical':
-                parsed.ort = 1;
-                break;
-            default:
-                throw new Error("noUiSlider: 'orientation' option is invalid.");
-        }
-    }
-
-    function testMargin ( parsed, entry ) {
-
-        if ( !isNumeric(entry) ){
-            throw new Error("noUiSlider: 'margin' option must be numeric.");
-        }
-
-        parsed.margin = parsed.spectrum.getMargin(entry);
-
-        if ( !parsed.margin ) {
-            throw new Error("noUiSlider: 'margin' option is only supported on linear sliders.");
-        }
-    }
-
-    function testLimit ( parsed, entry ) {
-
-        if ( !isNumeric(entry) ){
-            throw new Error("noUiSlider: 'limit' option must be numeric.");
-        }
-
-        parsed.limit = parsed.spectrum.getMargin(entry);
-
-        if ( !parsed.limit ) {
-            throw new Error("noUiSlider: 'limit' option is only supported on linear sliders.");
-        }
-    }
-
-    function testDirection ( parsed, entry ) {
-
-        // Set direction as a numerical value for easy parsing.
-        // Invert connection for RTL sliders, so that the proper
-        // handles get the connect/background classes.
-        switch ( entry ) {
-            case 'ltr':
-                parsed.dir = 0;
-                break;
-            case 'rtl':
-                parsed.dir = 1;
-                parsed.connect = [0,2,1,3][parsed.connect];
-                break;
-            default:
-                throw new Error("noUiSlider: 'direction' option was not recognized.");
-        }
-    }
-
-    function testBehaviour ( parsed, entry ) {
-
-        // Make sure the input is a string.
-        if ( typeof entry !== 'string' ) {
-            throw new Error("noUiSlider: 'behaviour' must be a string containing options.");
-        }
-
-        // Check if the string contains any keywords.
-        // None are required.
-        var tap = entry.indexOf('tap') >= 0,
-            drag = entry.indexOf('drag') >= 0,
-            fixed = entry.indexOf('fixed') >= 0,
-            snap = entry.indexOf('snap') >= 0;
-
-        parsed.events = {
-            tap: tap || snap,
-            drag: drag,
-            fixed: fixed,
-            snap: snap
-        };
-    }
-
-    function testFormat ( parsed, entry ) {
-
-        parsed.format = entry;
-
-        // Any object with a to and from method is supported.
-        if ( typeof entry.to === 'function' && typeof entry.from === 'function' ) {
-            return true;
-        }
-
-        throw new Error( "noUiSlider: 'format' requires 'to' and 'from' methods.");
-    }
-
-    // Test all developer settings and parse to assumption-safe values.
-    function testOptions ( options ) {
-
-        var parsed = {
-            margin: 0,
-            limit: 0,
-            animate: true,
-            format: defaultFormatter
-        }, tests;
-
-        // Tests are executed in the order they are presented here.
-        tests = {
-            'step': { r: false, t: testStep },
-            'start': { r: true, t: testStart },
-            'connect': { r: true, t: testConnect },
-            'direction': { r: true, t: testDirection },
-            'snap': { r: false, t: testSnap },
-            'animate': { r: false, t: testAnimate },
-            'range': { r: true, t: testRange },
-            'orientation': { r: false, t: testOrientation },
-            'margin': { r: false, t: testMargin },
-            'limit': { r: false, t: testLimit },
-            'behaviour': { r: true, t: testBehaviour },
-            'format': { r: false, t: testFormat }
-        };
-
-        // Set defaults where applicable.
-        options = $.extend({
-            'connect': false,
-            'direction': 'ltr',
-            'behaviour': 'tap',
-            'orientation': 'horizontal'
-        }, options);
-
-        // Run all options through a testing mechanism to ensure correct
-        // input. It should be noted that options might get modified to
-        // be handled properly. E.g. wrapping integers in arrays.
-        $.each( tests, function( name, test ){
-
-            // If the option isn't set, but it is required, throw an error.
-            if ( options[name] === undefined ) {
-
-                if ( test.r ) {
-                    throw new Error("noUiSlider: '" + name + "' is required.");
-                }
-
-                return true;
-            }
-
-            test.t( parsed, options[name] );
-        });
-
-        // Pre-define the styles.
-        parsed.style = parsed.ort ? 'top' : 'left';
-
-        return parsed;
-    }
-
-// Class handling
-
-    // Delimit proposed values for handle positions.
-    function getPositions ( a, b, delimit ) {
-
-        // Add movement to current position.
-        var c = a + b[0], d = a + b[1];
-
-        // Only alter the other position on drag,
-        // not on standard sliding.
-        if ( delimit ) {
-            if ( c < 0 ) {
-                d += Math.abs(c);
-            }
-            if ( d > 100 ) {
-                c -= ( d - 100 );
-            }
-
-            // Limit values to 0 and 100.
-            return [limit(c), limit(d)];
-        }
-
-        return [c,d];
-    }
-
-
-// Event handling
-
-    // Provide a clean event with standardized offset values.
-    function fixEvent ( e ) {
-
-        // Prevent scrolling and panning on touch events, while
-        // attempting to slide. The tap event also depends on this.
-        e.preventDefault();
-
-        // Filter the event to register the type, which can be
-        // touch, mouse or pointer. Offset changes need to be
-        // made on an event specific basis.
-        var  touch = e.type.indexOf('touch') === 0
-            ,mouse = e.type.indexOf('mouse') === 0
-            ,pointer = e.type.indexOf('pointer') === 0
-            ,x,y, event = e;
-
-        // IE10 implemented pointer events with a prefix;
-        if ( e.type.indexOf('MSPointer') === 0 ) {
-            pointer = true;
-        }
-
-        // Get the originalEvent, if the event has been wrapped
-        // by jQuery. Zepto doesn't wrap the event.
-        if ( e.originalEvent ) {
-            e = e.originalEvent;
-        }
-
-        if ( touch ) {
-            // noUiSlider supports one movement at a time,
-            // so we can select the first 'changedTouch'.
-            x = e.changedTouches[0].pageX;
-            y = e.changedTouches[0].pageY;
-        }
-
-        if ( mouse || pointer ) {
-
-            // Polyfill the pageXOffset and pageYOffset
-            // variables for IE7 and IE8;
-            if( !pointer && window.pageXOffset === undefined ){
-                window.pageXOffset = document.documentElement.scrollLeft;
-                window.pageYOffset = document.documentElement.scrollTop;
-            }
-
-            x = e.clientX + window.pageXOffset;
-            y = e.clientY + window.pageYOffset;
-        }
-
-        event.points = [x, y];
-        event.cursor = mouse;
-
-        return event;
-    }
-
-
-// DOM additions
-
-    // Append a handle to the base.
-    function addHandle ( direction, index ) {
-
-        var handle = $('<div><div/></div>').addClass( Classes[2] ),
-            additions = [ '-lower', '-upper' ];
-
-        if ( direction ) {
-            additions.reverse();
-        }
-
-        handle.children().addClass(
-            Classes[3] + " " + Classes[3]+additions[index]
-        );
-
-        return handle;
-    }
-
-    // Add the proper connection classes.
-    function addConnection ( connect, target, handles ) {
-
-        // Apply the required connection classes to the elements
-        // that need them. Some classes are made up for several
-        // segments listed in the class list, to allow easy
-        // renaming and provide a minor compression benefit.
-        switch ( connect ) {
-            case 1:	target.addClass( Classes[7] );
-                handles[0].addClass( Classes[6] );
-                break;
-            case 3: handles[1].addClass( Classes[6] );
-            /* falls through */
-            case 2: handles[0].addClass( Classes[7] );
-            /* falls through */
-            case 0: target.addClass(Classes[6]);
-                break;
-        }
-    }
-
-    // Add handles to the slider base.
-    function addHandles ( nrHandles, direction, base ) {
-
-        var index, handles = [];
-
-        // Append handles.
-        for ( index = 0; index < nrHandles; index += 1 ) {
-
-            // Keep a list of all added handles.
-            handles.push( addHandle( direction, index ).appendTo(base) );
-        }
-
-        return handles;
-    }
-
-    // Initialize a single slider.
-    function addSlider ( direction, orientation, target ) {
-
-        // Apply classes and data to the target.
-        target.addClass([
-            Classes[0],
-            Classes[8 + direction],
-            Classes[4 + orientation]
-        ].join(' '));
-
-        return $('<div/>').appendTo(target).addClass( Classes[1] );
-    }
-
-    function closure ( target, options, originalOptions ){
-
-// Internal variables
-
-        // All variables local to 'closure' are marked $.
-        var $Target = $(target),
-            $Locations = [-1, -1],
-            $Base,
-            $Handles,
-            $Spectrum = options.spectrum,
-            $Values = [],
-        // libLink. For rtl sliders, 'lower' and 'upper' should not be inverted
-        // for one-handle sliders, so trim 'upper' it that case.
-            triggerPos = ['lower', 'upper'].slice(0, options.handles);
-
-        // Invert the libLink connection for rtl sliders.
-        if ( options.dir ) {
-            triggerPos.reverse();
-        }
-
-// Helpers
-
-        // Shorthand for base dimensions.
-        function baseSize ( ) {
-            return $Base[['width', 'height'][options.ort]]();
-        }
-
-        // External event handling
-        function fireEvents ( events ) {
-
-            // Use the external api to get the values.
-            // Wrap the values in an array, as .trigger takes
-            // only one additional argument.
-            var index, values = [ $Target.val() ];
-
-            for ( index = 0; index < events.length; index += 1 ){
-                $Target.trigger(events[index], values);
-            }
-        }
-
-        // Returns the input array, respecting the slider direction configuration.
-        function inSliderOrder ( values ) {
-
-            // If only one handle is used, return a single value.
-            if ( values.length === 1 ){
-                return values[0];
-            }
-
-            if ( options.dir ) {
-                return values.reverse();
-            }
-
-            return values;
-        }
-
-// libLink integration
-
-        // Create a new function which calls .val on input change.
-        function createChangeHandler ( trigger ) {
-            return function ( ignore, value ){
-                // Determine which array position to 'null' based on 'trigger'.
-                $Target.val( [ trigger ? null : value, trigger ? value : null ], true );
-            };
-        }
-
-        // Called by libLink when it wants a set of links updated.
-        function linkUpdate ( flag ) {
-
-            var trigger = $.inArray(flag, triggerPos);
-
-            // The API might not have been set yet.
-            if ( $Target[0].linkAPI && $Target[0].linkAPI[flag] ) {
-                $Target[0].linkAPI[flag].change(
-                    $Values[trigger],
-                    $Handles[trigger].children(),
-                    $Target
-                );
-            }
-        }
-
-        // Called by libLink to append an element to the slider.
-        function linkConfirm ( flag, element ) {
-
-            // Find the trigger for the passed flag.
-            var trigger = $.inArray(flag, triggerPos);
-
-            // If set, append the element to the handle it belongs to.
-            if ( element ) {
-                element.appendTo( $Handles[trigger].children() );
-            }
-
-            // The public API is reversed for rtl sliders, so the changeHandler
-            // should not be aware of the inverted trigger positions.
-            if ( options.dir ) {
-                trigger = trigger === 1 ? 0 : 1;
-            }
-
-            return createChangeHandler( trigger );
-        }
-
-        // Place elements back on the slider.
-        function reAppendLink ( ) {
-
-            var i, flag;
-
-            // The API keeps a list of elements: we can re-append them on rebuild.
-            for ( i = 0; i < triggerPos.length; i += 1 ) {
-                if ( this.linkAPI && this.linkAPI[(flag = triggerPos[i])] ) {
-                    this.linkAPI[flag].reconfirm(flag);
-                }
-            }
-        }
-
-        target.LinkUpdate = linkUpdate;
-        target.LinkConfirm = linkConfirm;
-        target.LinkDefaultFormatter = options.format;
-        target.LinkDefaultFlag = 'lower';
-
-        target.reappend = reAppendLink;
-
-
-        // Handler for attaching events trough a proxy.
-        function attach ( events, element, callback, data ) {
-
-            // This function can be used to 'filter' events to the slider.
-
-            // Add the noUiSlider namespace to all events.
-            events = events.replace( /\s/g, namespace + ' ' ) + namespace;
-
-            // Bind a closure on the target.
-            return element.on( events, function( e ){
-
-                // jQuery and Zepto (1) handle unset attributes differently,
-                // but always falsy; #208
-                if ( !!$Target.attr('disabled') ) {
-                    return false;
-                }
-
-                // Stop if an active 'tap' transition is taking place.
-                if ( $Target.hasClass( Classes[14] ) ) {
-                    return false;
-                }
-
-                e = fixEvent(e);
-                e.calcPoint = e.points[ options.ort ];
-
-                // Call the event handler with the event [ and additional data ].
-                callback ( e, data );
-            });
-        }
-
-        // Handle movement on document for handle and range drag.
-        function move ( event, data ) {
-
-            var handles = data.handles || $Handles, positions, state = false,
-                proposal = ((event.calcPoint - data.start) * 100) / baseSize(),
-                h = handles[0][0] !== $Handles[0][0] ? 1 : 0;
-
-            // Calculate relative positions for the handles.
-            positions = getPositions( proposal, data.positions, handles.length > 1);
-
-            state = setHandle ( handles[0], positions[h], handles.length === 1 );
-
-            if ( handles.length > 1 ) {
-                state = setHandle ( handles[1], positions[h?0:1], false ) || state;
-            }
-
-            // Fire the 'slide' event if any handle moved.
-            if ( state ) {
-                fireEvents(['slide']);
-            }
-        }
-
-        // Unbind move events on document, call callbacks.
-        function end ( event ) {
-
-            // The handle is no longer active, so remove the class.
-            $('.' + Classes[15]).removeClass(Classes[15]);
-
-            // Remove cursor styles and text-selection events bound to the body.
-            if ( event.cursor ) {
-                $('body').css('cursor', '').off( namespace );
-            }
-
-            // Unbind the move and end events, which are added on 'start'.
-            doc.off( namespace );
-
-            // Remove dragging class.
-            $Target.removeClass(Classes[12]);
-
-            // Fire the change and set events.
-            fireEvents(['set', 'change']);
-        }
-
-        // Bind move events on document.
-        function start ( event, data ) {
-
-            // Mark the handle as 'active' so it can be styled.
-            if( data.handles.length === 1 ) {
-                data.handles[0].children().addClass(Classes[15]);
-            }
-
-            // A drag should never propagate up to the 'tap' event.
-            event.stopPropagation();
-
-            // Attach the move event.
-            attach ( actions.move, doc, move, {
-                start: event.calcPoint,
-                handles: data.handles,
-                positions: [
-                    $Locations[0],
-                    $Locations[$Handles.length - 1]
-                ]
-            });
-
-            // Unbind all movement when the drag ends.
-            attach ( actions.end, doc, end, null );
-
-            // Text selection isn't an issue on touch devices,
-            // so adding cursor styles can be skipped.
-            if ( event.cursor ) {
-
-                // Prevent the 'I' cursor and extend the range-drag cursor.
-                $('body').css('cursor', $(event.target).css('cursor'));
-
-                // Mark the target with a dragging state.
-                if ( $Handles.length > 1 ) {
-                    $Target.addClass(Classes[12]);
-                }
-
-                // Prevent text selection when dragging the handles.
-                $('body').on('selectstart' + namespace, false);
-            }
-        }
-
-        // Move closest handle to tapped location.
-        function tap ( event ) {
-
-            var location = event.calcPoint, total = 0, to;
-
-            // The tap event shouldn't propagate up and cause 'edge' to run.
-            event.stopPropagation();
-
-            // Add up the handle offsets.
-            $.each( $Handles, function(){
-                total += this.offset()[ options.style ];
-            });
-
-            // Find the handle closest to the tapped position.
-            total = ( location < total/2 || $Handles.length === 1 ) ? 0 : 1;
-
-            location -= $Base.offset()[ options.style ];
-
-            // Calculate the new position.
-            to = ( location * 100 ) / baseSize();
-
-            if ( !options.events.snap ) {
-                // Flag the slider as it is now in a transitional state.
-                // Transition takes 300 ms, so re-enable the slider afterwards.
-                addClassFor( $Target, Classes[14], 300 );
-            }
-
-            // Find the closest handle and calculate the tapped point.
-            // The set handle to the new position.
-            setHandle( $Handles[total], to );
-
-            fireEvents(['slide', 'set', 'change']);
-
-            if ( options.events.snap ) {
-                start(event, { handles: [$Handles[total]] });
-            }
-        }
-
-        // Attach events to several slider parts.
-        function events ( behaviour ) {
-
-            var i, drag;
-
-            // Attach the standard drag event to the handles.
-            if ( !behaviour.fixed ) {
-
-                for ( i = 0; i < $Handles.length; i += 1 ) {
-
-                    // These events are only bound to the visual handle
-                    // element, not the 'real' origin element.
-                    attach ( actions.start, $Handles[i].children(), start, {
-                        handles: [ $Handles[i] ]
-                    });
-                }
-            }
-
-            // Attach the tap event to the slider base.
-            if ( behaviour.tap ) {
-
-                attach ( actions.start, $Base, tap, {
-                    handles: $Handles
-                });
-            }
-
-            // Make the range dragable.
-            if ( behaviour.drag ){
-
-                drag = $Base.find( '.' + Classes[7] ).addClass( Classes[10] );
-
-                // When the range is fixed, the entire range can
-                // be dragged by the handles. The handle in the first
-                // origin will propagate the start event upward,
-                // but it needs to be bound manually on the other.
-                if ( behaviour.fixed ) {
-                    drag = drag.add($Base.children().not( drag ).children());
-                }
-
-                attach ( actions.start, drag, start, {
-                    handles: $Handles
-                });
-            }
-        }
-
-
-        // Test suggested values and apply margin, step.
-        function setHandle ( handle, to, noLimitOption ) {
-
-            var trigger = handle[0] !== $Handles[0][0] ? 1 : 0,
-                lowerMargin = $Locations[0] + options.margin,
-                upperMargin = $Locations[1] - options.margin,
-                lowerLimit = $Locations[0] + options.limit,
-                upperLimit = $Locations[1] - options.limit;
-
-            // For sliders with multiple handles,
-            // limit movement to the other handle.
-            // Apply the margin option by adding it to the handle positions.
-            if ( $Handles.length > 1 ) {
-                to = trigger ? Math.max( to, lowerMargin ) : Math.min( to, upperMargin );
-            }
-
-            // The limit option has the opposite effect, limiting handles to a
-            // maximum distance from another. Limit must be > 0, as otherwise
-            // handles would be unmoveable. 'noLimitOption' is set to 'false'
-            // for the .val() method, except for pass 4/4.
-            if ( noLimitOption !== false && options.limit && $Handles.length > 1 ) {
-                to = trigger ? Math.min ( to, lowerLimit ) : Math.max( to, upperLimit );
-            }
-
-            // Handle the step option.
-            to = $Spectrum.getStep( to );
-
-            // Limit to 0/100 for .val input, trim anything beyond 7 digits, as
-            // JavaScript has some issues in its floating point implementation.
-            to = limit(parseFloat(to.toFixed(7)));
-
-            // Return false if handle can't move.
-            if ( to === $Locations[trigger] ) {
-                return false;
-            }
-
-            // Set the handle to the new position.
-            handle.css( options.style, to + '%' );
-
-            // Force proper handle stacking
-            if ( handle.is(':first-child') ) {
-                handle.toggleClass(Classes[17], to > 50 );
-            }
-
-            // Update locations.
-            $Locations[trigger] = to;
-
-            // Convert the value to the slider stepping/range.
-            $Values[trigger] = $Spectrum.fromStepping( to );
-
-            linkUpdate(triggerPos[trigger]);
-
-            return true;
-        }
-
-        // Loop values from value method and apply them.
-        function setValues ( count, values ) {
-
-            var i, trigger, to;
-
-            // With the limit option, we'll need another limiting pass.
-            if ( options.limit ) {
-                count += 1;
-            }
-
-            // If there are multiple handles to be set run the setting
-            // mechanism twice for the first handle, to make sure it
-            // can be bounced of the second one properly.
-            for ( i = 0; i < count; i += 1 ) {
-
-                trigger = i%2;
-
-                // Get the current argument from the array.
-                to = values[trigger];
-
-                // Setting with null indicates an 'ignore'.
-                // Inputting 'false' is invalid.
-                if ( to !== null && to !== false ) {
-
-                    // If a formatted number was passed, attemt to decode it.
-                    if ( typeof to === 'number' ) {
-                        to = String(to);
-                    }
-
-                    to = options.format.from( to );
-
-                    // Request an update for all links if the value was invalid.
-                    // Do so too if setting the handle fails.
-                    if ( to === false || isNaN(to) || setHandle( $Handles[trigger], $Spectrum.toStepping( to ), i === (3 - options.dir) ) === false ) {
-
-                        linkUpdate(triggerPos[trigger]);
-                    }
-                }
-            }
-        }
-
-        // Set the slider value.
-        function valueSet ( input ) {
-
-            // LibLink: don't accept new values when currently emitting changes.
-            if ( $Target[0].LinkIsEmitting ) {
-                return this;
-            }
-
-            var count, values = asArray( input );
-
-            // The RTL settings is implemented by reversing the front-end,
-            // internal mechanisms are the same.
-            if ( options.dir && options.handles > 1 ) {
-                values.reverse();
-            }
-
-            // Animation is optional.
-            // Make sure the initial values where set before using animated
-            // placement. (no report, unit testing);
-            if ( options.animate && $Locations[0] !== -1 ) {
-                addClassFor( $Target, Classes[14], 300 );
-            }
-
-            // Determine how often to set the handles.
-            count = $Handles.length > 1 ? 3 : 1;
-
-            if ( values.length === 1 ) {
-                count = 1;
-            }
-
-            setValues ( count, values );
-
-            // Fire the 'set' event. As of noUiSlider 7,
-            // this is no longer optional.
-            fireEvents(['set']);
-
-            return this;
-        }
-
-        // Get the slider value.
-        function valueGet ( ) {
-
-            var i, retour = [];
-
-            // Get the value from all handles.
-            for ( i = 0; i < options.handles; i += 1 ){
-                retour[i] = options.format.to( $Values[i] );
-            }
-
-            return inSliderOrder( retour );
-        }
-
-        // Destroy the slider and unbind all events.
-        function destroyTarget ( ) {
-
-            // Unbind events on the slider, remove all classes and child elements.
-            $(this).off(namespace)
-                .removeClass(Classes.join(' '))
-                .empty();
-
-            delete this.LinkUpdate;
-            delete this.LinkConfirm;
-            delete this.LinkDefaultFormatter;
-            delete this.LinkDefaultFlag;
-            delete this.reappend;
-            delete this.vGet;
-            delete this.vSet;
-            delete this.getCurrentStep;
-            delete this.getInfo;
-            delete this.destroy;
-
-            // Return the original options from the closure.
-            return originalOptions;
-        }
-
-        // Get the current step size for the slider.
-        function getCurrentStep ( ) {
-
-            // Check all locations, map them to their stepping point.
-            // Get the step point, then find it in the input list.
-            var retour = $.map($Locations, function( location, index ){
-
-                var step = $Spectrum.getApplicableStep( location ),
-                    value = $Values[index],
-                    increment = step[2],
-                    decrement = (value - step[2]) >= step[1] ? step[2] : step[0];
-
-                return [[decrement, increment]];
-            });
-
-            // Return values in the proper order.
-            return inSliderOrder( retour );
-        }
-
-        // Get the original set of options.
-        function getOriginalOptions ( ) {
-            return originalOptions;
-        }
-
-
-// Initialize slider
-
-        // Throw an error if the slider was already initialized.
-        if ( $Target.hasClass(Classes[0]) ) {
-            throw new Error('Slider was already initialized.');
-        }
-
-        // Create the base element, initialise HTML and set classes.
-        // Add handles and links.
-        $Base = addSlider( options.dir, options.ort, $Target );
-        $Handles = addHandles( options.handles, options.dir, $Base );
-
-        // Set the connect classes.
-        addConnection ( options.connect, $Target, $Handles );
-
-        // Attach user events.
-        events( options.events );
-
-// Methods
-
-        target.vSet = valueSet;
-        target.vGet = valueGet;
-        target.destroy = destroyTarget;
-
-        target.getCurrentStep = getCurrentStep;
-        target.getOriginalOptions = getOriginalOptions;
-
-        target.getInfo = function(){
-            return [
-                $Spectrum,
-                options.style,
-                options.ort
-            ];
-        };
-
-        // Use the public value method to set the start values.
-        $Target.val( options.start );
-
-    }
-
-
-    // Run the standard initializer
-    function initialize ( originalOptions ) {
-
-        // Throw error if group is empty.
-        if ( !this.length ){
-            throw new Error("noUiSlider: Can't initialize slider on empty selection.");
-        }
-
-        // Test the options once, not for every slider.
-        var options = testOptions( originalOptions, this );
-
-        // Loop all items, and provide a new closed-scope environment.
-        return this.each(function(){
-            closure(this, options, originalOptions);
-        });
-    }
-
-    // Destroy the slider, then re-enter initialization.
-    function rebuild ( options ) {
-
-        return this.each(function(){
-
-            // The rebuild flag can be used if the slider wasn't initialized yet.
-            if ( !this.destroy ) {
-                $(this).noUiSlider( options );
-                return;
-            }
-
-            // Get the current values from the slider,
-            // including the initialization options.
-            var values = $(this).val(), originalOptions = this.destroy(),
-
-            // Extend the previous options with the newly provided ones.
-                newOptions = $.extend( {}, originalOptions, options );
-
-            // Run the standard initializer.
-            $(this).noUiSlider( newOptions );
-
-            // Place Link elements back.
-            this.reappend();
-
-            // If the start option hasn't changed,
-            // reset the previous values.
-            if ( originalOptions.start === newOptions.start ) {
-                $(this).val(values);
-            }
-        });
-    }
-
-    // Access the internal getting and setting methods based on argument count.
-    function value ( ) {
-        return this[0][ !arguments.length ? 'vGet' : 'vSet' ].apply(this[0], arguments);
-    }
-
-    // Override the .val() method. Test every element. Is it a slider? Go to
-    // the slider value handling. No? Use the standard method.
-    // Note how $.fn.val expects 'this' to be an instance of $. For convenience,
-    // the above 'value' function does too.
-    $.fn.val = function ( ) {
-
-        // this === instanceof $
-
-        function valMethod( a ){
-            return a.hasClass(Classes[0]) ? value : $val;
-        }
-
-        var args = arguments,
-            first = $(this[0]);
-
-        if ( !arguments.length ) {
-            return valMethod(first).call(first);
-        }
-
-        // Return the set so it remains chainable
-        return this.each(function(){
-            valMethod($(this)).apply($(this), args);
-        });
-    };
-
-// Extend jQuery/Zepto with the noUiSlider method.
-    $.fn.noUiSlider = function ( options, rebuildFlag ) {
-
-        switch ( options ) {
-            case 'step': return this[0].getCurrentStep();
-            case 'options': return this[0].getOriginalOptions();
-        }
-
-        return ( rebuildFlag ? rebuild : initialize ).call(this, options);
-    };
-
-    function getGroup ( $Spectrum, mode, values, stepped ) {
-
-        // Use the range.
-        if ( mode === 'range' || mode === 'steps' ) {
-            return $Spectrum.xVal;
-        }
-
-        if ( mode === 'count' ) {
-
-            // Divide 0 - 100 in 'count' parts.
-            var spread = ( 100 / (values-1) ), v, i = 0;
-            values = [];
-
-            // List these parts and have them handled as 'positions'.
-            while ((v=i++*spread) <= 100 ) {
-                values.push(v);
-            }
-
-            mode = 'positions';
-        }
-
-        if ( mode === 'positions' ) {
-
-            // Map all percentages to on-range values.
-            return $.map(values, function( value ){
-                return $Spectrum.fromStepping( stepped ? $Spectrum.getStep( value ) : value );
-            });
-        }
-
-        if ( mode === 'values' ) {
-
-            // If the value must be stepped, it needs to be converted to a percentage first.
-            if ( stepped ) {
-
-                return $.map(values, function( value ){
-
-                    // Convert to percentage, apply step, return to value.
-                    return $Spectrum.fromStepping( $Spectrum.getStep( $Spectrum.toStepping( value ) ) );
-                });
-
-            }
-
-            // Otherwise, we can simply use the values.
-            return values;
-        }
-    }
-
-    function generateSpread ( $Spectrum, density, mode, group ) {
-
-        var originalSpectrumDirection = $Spectrum.direction,
-            indexes = {},
-            firstInRange = $Spectrum.xVal[0],
-            lastInRange = $Spectrum.xVal[$Spectrum.xVal.length-1],
-            ignoreFirst = false,
-            ignoreLast = false,
-            prevPct = 0;
-
-        // This function loops the spectrum in an ltr linear fashion,
-        // while the toStepping method is direction aware. Trick it into
-        // believing it is ltr.
-        $Spectrum.direction = 0;
-
-        // Create a copy of the group, sort it and filter away all duplicates.
-        group = unique(group.slice().sort(function(a, b){ return a - b; }));
-
-        // Make sure the range starts with the first element.
-        if ( group[0] !== firstInRange ) {
-            group.unshift(firstInRange);
-            ignoreFirst = true;
-        }
-
-        // Likewise for the last one.
-        if ( group[group.length - 1] !== lastInRange ) {
-            group.push(lastInRange);
-            ignoreLast = true;
-        }
-
-        $.each(group, function ( index ) {
-
-            // Get the current step and the lower + upper positions.
-            var step, i, q,
-                low = group[index],
-                high = group[index+1],
-                newPct, pctDifference, pctPos, type,
-                steps, realSteps, stepsize;
-
-            // When using 'steps' mode, use the provided steps.
-            // Otherwise, we'll step on to the next subrange.
-            if ( mode === 'steps' ) {
-                step = $Spectrum.xNumSteps[ index ];
-            }
-
-            // Default to a 'full' step.
-            if ( !step ) {
-                step = high-low;
-            }
-
-            // Low can be 0, so test for false. If high is undefined,
-            // we are at the last subrange. Index 0 is already handled.
-            if ( low === false || high === undefined ) {
-                return;
-            }
-
-            // Find all steps in the subrange.
-            for ( i = low; i <= high; i += step ) {
-
-                // Get the percentage value for the current step,
-                // calculate the size for the subrange.
-                newPct = $Spectrum.toStepping( i );
-                pctDifference = newPct - prevPct;
-
-                steps = pctDifference / density;
-                realSteps = Math.round(steps);
-
-                // This ratio represents the ammount of percentage-space a point indicates.
-                // For a density 1 the points/percentage = 1. For density 2, that percentage needs to be re-devided.
-                // Round the percentage offset to an even number, then divide by two
-                // to spread the offset on both sides of the range.
-                stepsize = pctDifference/realSteps;
-
-                // Divide all points evenly, adding the correct number to this subrange.
-                // Run up to <= so that 100% gets a point, event if ignoreLast is set.
-                for ( q = 1; q <= realSteps; q += 1 ) {
-
-                    // The ratio between the rounded value and the actual size might be ~1% off.
-                    // Correct the percentage offset by the number of points
-                    // per subrange. density = 1 will result in 100 points on the
-                    // full range, 2 for 50, 4 for 25, etc.
-                    pctPos = prevPct + ( q * stepsize );
-                    indexes[pctPos.toFixed(5)] = ['x', 0];
-                }
-
-                // Determine the point type.
-                type = ($.inArray(i, group) > -1) ? 1 : ( mode === 'steps' ? 2 : 0 );
-
-                // Enforce the 'ignoreFirst' option by overwriting the type for 0.
-                if ( !index && ignoreFirst && !low ) {
-                    type = 0;
-                }
-
-                if ( !(i === high && ignoreLast)) {
-                    // Mark the 'type' of this point. 0 = plain, 1 = real value, 2 = step value.
-                    indexes[newPct.toFixed(5)] = [i, type];
-                }
-
-                // Update the percentage count.
-                prevPct = newPct;
-            }
-        });
-
-        // Reset the spectrum.
-        $Spectrum.direction = originalSpectrumDirection;
-
-        return indexes;
-    }
-
-    function addMarking ( CSSstyle, orientation, direction, spread, filterFunc, formatter ) {
-
-        var style = ['horizontal', 'vertical'][orientation],
-            element = $('<div/>');
-
-        element.addClass('noUi-pips noUi-pips-'+style);
-
-        function getSize( type, value ){
-            return [ '-normal', '-large', '-sub' ][(type&&filterFunc) ? filterFunc(value, type) : type];
-        }
-        function getTags( offset, source, values ) {
-            return 'class="' + source + ' ' +
-            source + '-' + style + ' ' +
-            source + getSize(values[1], values[0]) +
-            '" style="' + CSSstyle + ': ' + offset + '%"';
-        }
-        function addSpread ( offset, values ){
-
-            if ( direction ) {
-                offset = 100 - offset;
-            }
-
-            // Add a marker for every point
-            element.append('<div '+getTags(offset, 'noUi-marker', values)+'></div>');
-
-            // Values are only appended for points marked '1' or '2'.
-            if ( values[1] ) {
-                element.append('<div '+getTags(offset, 'noUi-value', values)+'>' + formatter.to(values[0]) + '</div>');
-            }
-        }
-
-        // Append all points.
-        $.each(spread, addSpread);
-
-        return element;
-    }
-
-    $.fn.noUiSlider_pips = function ( grid ) {
-
-        var mode = grid.mode,
-            density = grid.density || 1,
-            filter = grid.filter || false,
-            values = grid.values || false,
-            format = grid.format || {
-                    to: Math.round
-                },
-            stepped = grid.stepped || false;
-
-        return this.each(function(){
-
-            var info = this.getInfo(),
-                group = getGroup( info[0], mode, values, stepped ),
-                spread = generateSpread( info[0], density, mode, group );
-
-            return $(this).append(addMarking(
-                info[1],
-                info[2],
-                info[0].direction,
-                spread,
-                filter,
-                format
-            ));
-        });
-    };
-
-}( window.jQuery || window.Zepto ));
-
-
-
 /*!
  * jQuery UI Core 1.11.0
  * http://jqueryui.com
@@ -37202,6 +28916,8292 @@ return $.widget( "ui.tooltip", {
 
 
 
+
+
+
+/* =========================================================
+ * bootstrap-datepicker.js
+ * Repo: https://github.com/eternicode/bootstrap-datepicker/
+ * Demo: http://eternicode.github.io/bootstrap-datepicker/
+ * Docs: http://bootstrap-datepicker.readthedocs.org/
+ * Forked from http://www.eyecon.ro/bootstrap-datepicker
+ * =========================================================
+ * Started by Stefan Petre; improvements by Andrew Rowls + contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * ========================================================= */
+
+
+(function($, undefined){
+
+	var $window = $(window);
+
+	function UTCDate(){
+		return new Date(Date.UTC.apply(Date, arguments));
+	}
+	function UTCToday(){
+		var today = new Date();
+		return UTCDate(today.getFullYear(), today.getMonth(), today.getDate());
+	}
+	function alias(method){
+		return function(){
+			return this[method].apply(this, arguments);
+		};
+	}
+
+	var DateArray = (function(){
+		var extras = {
+			get: function(i){
+				return this.slice(i)[0];
+			},
+			contains: function(d){
+				// Array.indexOf is not cross-browser;
+				// $.inArray doesn't work with Dates
+				var val = d && d.valueOf();
+				for (var i=0, l=this.length; i < l; i++)
+					if (this[i].valueOf() === val)
+						return i;
+				return -1;
+			},
+			remove: function(i){
+				this.splice(i,1);
+			},
+			replace: function(new_array){
+				if (!new_array)
+					return;
+				if (!$.isArray(new_array))
+					new_array = [new_array];
+				this.clear();
+				this.push.apply(this, new_array);
+			},
+			clear: function(){
+				this.splice(0);
+			},
+			copy: function(){
+				var a = new DateArray();
+				a.replace(this);
+				return a;
+			}
+		};
+
+		return function(){
+			var a = [];
+			a.push.apply(a, arguments);
+			$.extend(a, extras);
+			return a;
+		};
+	})();
+
+
+	// Picker object
+
+	var Datepicker = function(element, options){
+		this.dates = new DateArray();
+		this.viewDate = UTCToday();
+		this.focusDate = null;
+
+		this._process_options(options);
+
+		this.element = $(element);
+		this.isInline = false;
+		this.isInput = this.element.is('input');
+		this.component = this.element.is('.date') ? this.element.find('.add-on, .input-group-addon, .btn') : false;
+		this.hasInput = this.component && this.element.find('input').length;
+		if (this.component && this.component.length === 0)
+			this.component = false;
+
+		this.picker = $(DPGlobal.template);
+		this._buildEvents();
+		this._attachEvents();
+
+		if (this.isInline){
+			this.picker.addClass('datepicker-inline').appendTo(this.element);
+		}
+		else {
+			this.picker.addClass('datepicker-dropdown dropdown-menu');
+		}
+
+		if (this.o.rtl){
+			this.picker.addClass('datepicker-rtl');
+		}
+
+		this.viewMode = this.o.startView;
+
+		if (this.o.calendarWeeks)
+			this.picker.find('tfoot th.today')
+						.attr('colspan', function(i, val){
+							return parseInt(val) + 1;
+						});
+
+		this._allow_update = false;
+
+		this.setStartDate(this._o.startDate);
+		this.setEndDate(this._o.endDate);
+		this.setDaysOfWeekDisabled(this.o.daysOfWeekDisabled);
+
+		this.fillDow();
+		this.fillMonths();
+
+		this._allow_update = true;
+
+		this.update();
+		this.showMode();
+
+		if (this.isInline){
+			this.show();
+		}
+	};
+
+	Datepicker.prototype = {
+		constructor: Datepicker,
+
+		_process_options: function(opts){
+			// Store raw options for reference
+			this._o = $.extend({}, this._o, opts);
+			// Processed options
+			var o = this.o = $.extend({}, this._o);
+
+			// Check if "de-DE" style date is available, if not language should
+			// fallback to 2 letter code eg "de"
+			var lang = o.language;
+			if (!dates[lang]){
+				lang = lang.split('-')[0];
+				if (!dates[lang])
+					lang = defaults.language;
+			}
+			o.language = lang;
+
+			switch (o.startView){
+				case 2:
+				case 'decade':
+					o.startView = 2;
+					break;
+				case 1:
+				case 'year':
+					o.startView = 1;
+					break;
+				default:
+					o.startView = 0;
+			}
+
+			switch (o.minViewMode){
+				case 1:
+				case 'months':
+					o.minViewMode = 1;
+					break;
+				case 2:
+				case 'years':
+					o.minViewMode = 2;
+					break;
+				default:
+					o.minViewMode = 0;
+			}
+
+			o.startView = Math.max(o.startView, o.minViewMode);
+
+			// true, false, or Number > 0
+			if (o.multidate !== true){
+				o.multidate = Number(o.multidate) || false;
+				if (o.multidate !== false)
+					o.multidate = Math.max(0, o.multidate);
+				else
+					o.multidate = 1;
+			}
+			o.multidateSeparator = String(o.multidateSeparator);
+
+			o.weekStart %= 7;
+			o.weekEnd = ((o.weekStart + 6) % 7);
+
+			var format = DPGlobal.parseFormat(o.format);
+			if (o.startDate !== -Infinity){
+				if (!!o.startDate){
+					if (o.startDate instanceof Date)
+						o.startDate = this._local_to_utc(this._zero_time(o.startDate));
+					else
+						o.startDate = DPGlobal.parseDate(o.startDate, format, o.language);
+				}
+				else {
+					o.startDate = -Infinity;
+				}
+			}
+			if (o.endDate !== Infinity){
+				if (!!o.endDate){
+					if (o.endDate instanceof Date)
+						o.endDate = this._local_to_utc(this._zero_time(o.endDate));
+					else
+						o.endDate = DPGlobal.parseDate(o.endDate, format, o.language);
+				}
+				else {
+					o.endDate = Infinity;
+				}
+			}
+
+			o.daysOfWeekDisabled = o.daysOfWeekDisabled||[];
+			if (!$.isArray(o.daysOfWeekDisabled))
+				o.daysOfWeekDisabled = o.daysOfWeekDisabled.split(/[,\s]*/);
+			o.daysOfWeekDisabled = $.map(o.daysOfWeekDisabled, function(d){
+				return parseInt(d, 10);
+			});
+
+			var plc = String(o.orientation).toLowerCase().split(/\s+/g),
+				_plc = o.orientation.toLowerCase();
+			plc = $.grep(plc, function(word){
+				return (/^auto|left|right|top|bottom$/).test(word);
+			});
+			o.orientation = {x: 'auto', y: 'auto'};
+			if (!_plc || _plc === 'auto')
+				; // no action
+			else if (plc.length === 1){
+				switch (plc[0]){
+					case 'top':
+					case 'bottom':
+						o.orientation.y = plc[0];
+						break;
+					case 'left':
+					case 'right':
+						o.orientation.x = plc[0];
+						break;
+				}
+			}
+			else {
+				_plc = $.grep(plc, function(word){
+					return (/^left|right$/).test(word);
+				});
+				o.orientation.x = _plc[0] || 'auto';
+
+				_plc = $.grep(plc, function(word){
+					return (/^top|bottom$/).test(word);
+				});
+				o.orientation.y = _plc[0] || 'auto';
+			}
+		},
+		_events: [],
+		_secondaryEvents: [],
+		_applyEvents: function(evs){
+			for (var i=0, el, ch, ev; i < evs.length; i++){
+				el = evs[i][0];
+				if (evs[i].length === 2){
+					ch = undefined;
+					ev = evs[i][1];
+				}
+				else if (evs[i].length === 3){
+					ch = evs[i][1];
+					ev = evs[i][2];
+				}
+				el.on(ev, ch);
+			}
+		},
+		_unapplyEvents: function(evs){
+			for (var i=0, el, ev, ch; i < evs.length; i++){
+				el = evs[i][0];
+				if (evs[i].length === 2){
+					ch = undefined;
+					ev = evs[i][1];
+				}
+				else if (evs[i].length === 3){
+					ch = evs[i][1];
+					ev = evs[i][2];
+				}
+				el.off(ev, ch);
+			}
+		},
+		_buildEvents: function(){
+			if (this.isInput){ // single input
+				this._events = [
+					[this.element, {
+						focus: $.proxy(this.show, this),
+						keyup: $.proxy(function(e){
+							if ($.inArray(e.keyCode, [27,37,39,38,40,32,13,9]) === -1)
+								this.update();
+						}, this),
+						keydown: $.proxy(this.keydown, this)
+					}]
+				];
+			}
+			else if (this.component && this.hasInput){ // component: input + button
+				this._events = [
+					// For components that are not readonly, allow keyboard nav
+					[this.element.find('input'), {
+						focus: $.proxy(this.show, this),
+						keyup: $.proxy(function(e){
+							if ($.inArray(e.keyCode, [27,37,39,38,40,32,13,9]) === -1)
+								this.update();
+						}, this),
+						keydown: $.proxy(this.keydown, this)
+					}],
+					[this.component, {
+						click: $.proxy(this.show, this)
+					}]
+				];
+			}
+			else if (this.element.is('div')){  // inline datepicker
+				this.isInline = true;
+			}
+			else {
+				this._events = [
+					[this.element, {
+						click: $.proxy(this.show, this)
+					}]
+				];
+			}
+			this._events.push(
+				// Component: listen for blur on element descendants
+				[this.element, '*', {
+					blur: $.proxy(function(e){
+						this._focused_from = e.target;
+					}, this)
+				}],
+				// Input: listen for blur on element
+				[this.element, {
+					blur: $.proxy(function(e){
+						this._focused_from = e.target;
+					}, this)
+				}]
+			);
+
+			this._secondaryEvents = [
+				[this.picker, {
+					click: $.proxy(this.click, this)
+				}],
+				[$(window), {
+					resize: $.proxy(this.place, this)
+				}],
+				[$(document), {
+					'mousedown touchstart': $.proxy(function(e){
+						// Clicked outside the datepicker, hide it
+						if (!(
+							this.element.is(e.target) ||
+							this.element.find(e.target).length ||
+							this.picker.is(e.target) ||
+							this.picker.find(e.target).length
+						)){
+							this.hide();
+						}
+					}, this)
+				}]
+			];
+		},
+		_attachEvents: function(){
+			this._detachEvents();
+			this._applyEvents(this._events);
+		},
+		_detachEvents: function(){
+			this._unapplyEvents(this._events);
+		},
+		_attachSecondaryEvents: function(){
+			this._detachSecondaryEvents();
+			this._applyEvents(this._secondaryEvents);
+		},
+		_detachSecondaryEvents: function(){
+			this._unapplyEvents(this._secondaryEvents);
+		},
+		_trigger: function(event, altdate){
+			var date = altdate || this.dates.get(-1),
+				local_date = this._utc_to_local(date);
+
+			this.element.trigger({
+				type: event,
+				date: local_date,
+				dates: $.map(this.dates, this._utc_to_local),
+				format: $.proxy(function(ix, format){
+					if (arguments.length === 0){
+						ix = this.dates.length - 1;
+						format = this.o.format;
+					}
+					else if (typeof ix === 'string'){
+						format = ix;
+						ix = this.dates.length - 1;
+					}
+					format = format || this.o.format;
+					var date = this.dates.get(ix);
+					return DPGlobal.formatDate(date, format, this.o.language);
+				}, this)
+			});
+		},
+
+		show: function(){
+			if (!this.isInline)
+				this.picker.appendTo('body');
+			this.picker.show();
+			this.place();
+			this._attachSecondaryEvents();
+			this._trigger('show');
+		},
+
+		hide: function(){
+			if (this.isInline)
+				return;
+			if (!this.picker.is(':visible'))
+				return;
+			this.focusDate = null;
+			this.picker.hide().detach();
+			this._detachSecondaryEvents();
+			this.viewMode = this.o.startView;
+			this.showMode();
+
+			if (
+				this.o.forceParse &&
+				(
+					this.isInput && this.element.val() ||
+					this.hasInput && this.element.find('input').val()
+				)
+			)
+				this.setValue();
+			this._trigger('hide');
+		},
+
+		remove: function(){
+			this.hide();
+			this._detachEvents();
+			this._detachSecondaryEvents();
+			this.picker.remove();
+			delete this.element.data().datepicker;
+			if (!this.isInput){
+				delete this.element.data().date;
+			}
+		},
+
+		_utc_to_local: function(utc){
+			return utc && new Date(utc.getTime() + (utc.getTimezoneOffset()*60000));
+		},
+		_local_to_utc: function(local){
+			return local && new Date(local.getTime() - (local.getTimezoneOffset()*60000));
+		},
+		_zero_time: function(local){
+			return local && new Date(local.getFullYear(), local.getMonth(), local.getDate());
+		},
+		_zero_utc_time: function(utc){
+			return utc && new Date(Date.UTC(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate()));
+		},
+
+		getDates: function(){
+			return $.map(this.dates, this._utc_to_local);
+		},
+
+		getUTCDates: function(){
+			return $.map(this.dates, function(d){
+				return new Date(d);
+			});
+		},
+
+		getDate: function(){
+			return this._utc_to_local(this.getUTCDate());
+		},
+
+		getUTCDate: function(){
+			return new Date(this.dates.get(-1));
+		},
+
+		setDates: function(){
+			var args = $.isArray(arguments[0]) ? arguments[0] : arguments;
+			this.update.apply(this, args);
+			this._trigger('changeDate');
+			this.setValue();
+		},
+
+		setUTCDates: function(){
+			var args = $.isArray(arguments[0]) ? arguments[0] : arguments;
+			this.update.apply(this, $.map(args, this._utc_to_local));
+			this._trigger('changeDate');
+			this.setValue();
+		},
+
+		setDate: alias('setDates'),
+		setUTCDate: alias('setUTCDates'),
+
+		setValue: function(){
+			var formatted = this.getFormattedDate();
+			if (!this.isInput){
+				if (this.component){
+					this.element.find('input').val(formatted).change();
+				}
+			}
+			else {
+				this.element.val(formatted).change();
+			}
+		},
+
+		getFormattedDate: function(format){
+			if (format === undefined)
+				format = this.o.format;
+
+			var lang = this.o.language;
+			return $.map(this.dates, function(d){
+				return DPGlobal.formatDate(d, format, lang);
+			}).join(this.o.multidateSeparator);
+		},
+
+		setStartDate: function(startDate){
+			this._process_options({startDate: startDate});
+			this.update();
+			this.updateNavArrows();
+		},
+
+		setEndDate: function(endDate){
+			this._process_options({endDate: endDate});
+			this.update();
+			this.updateNavArrows();
+		},
+
+		setDaysOfWeekDisabled: function(daysOfWeekDisabled){
+			this._process_options({daysOfWeekDisabled: daysOfWeekDisabled});
+			this.update();
+			this.updateNavArrows();
+		},
+
+		place: function(){
+			if (this.isInline)
+				return;
+			var calendarWidth = this.picker.outerWidth(),
+				calendarHeight = this.picker.outerHeight(),
+				visualPadding = 10,
+				windowWidth = $window.width(),
+				windowHeight = $window.height(),
+				scrollTop = $window.scrollTop();
+
+			var zIndex = parseInt(this.element.parents().filter(function(){
+					return $(this).css('z-index') !== 'auto';
+				}).first().css('z-index'))+10;
+			var offset = this.component ? this.component.parent().offset() : this.element.offset();
+			var height = this.component ? this.component.outerHeight(true) : this.element.outerHeight(false);
+			var width = this.component ? this.component.outerWidth(true) : this.element.outerWidth(false);
+			var left = offset.left,
+				top = offset.top;
+
+			this.picker.removeClass(
+				'datepicker-orient-top datepicker-orient-bottom '+
+				'datepicker-orient-right datepicker-orient-left'
+			);
+
+			if (this.o.orientation.x !== 'auto'){
+				this.picker.addClass('datepicker-orient-' + this.o.orientation.x);
+				if (this.o.orientation.x === 'right')
+					left -= calendarWidth - width;
+			}
+			// auto x orientation is best-placement: if it crosses a window
+			// edge, fudge it sideways
+			else {
+				// Default to left
+				this.picker.addClass('datepicker-orient-left');
+				if (offset.left < 0)
+					left -= offset.left - visualPadding;
+				else if (offset.left + calendarWidth > windowWidth)
+					left = windowWidth - calendarWidth - visualPadding;
+			}
+
+			// auto y orientation is best-situation: top or bottom, no fudging,
+			// decision based on which shows more of the calendar
+			var yorient = this.o.orientation.y,
+				top_overflow, bottom_overflow;
+			if (yorient === 'auto'){
+				top_overflow = -scrollTop + offset.top - calendarHeight;
+				bottom_overflow = scrollTop + windowHeight - (offset.top + height + calendarHeight);
+				if (Math.max(top_overflow, bottom_overflow) === bottom_overflow)
+					yorient = 'top';
+				else
+					yorient = 'bottom';
+			}
+			this.picker.addClass('datepicker-orient-' + yorient);
+			if (yorient === 'top')
+				top += height;
+			else
+				top -= calendarHeight + parseInt(this.picker.css('padding-top'));
+
+			this.picker.css({
+				top: top,
+				left: left,
+				zIndex: zIndex
+			});
+		},
+
+		_allow_update: true,
+		update: function(){
+			if (!this._allow_update)
+				return;
+
+			var oldDates = this.dates.copy(),
+				dates = [],
+				fromArgs = false;
+			if (arguments.length){
+				$.each(arguments, $.proxy(function(i, date){
+					if (date instanceof Date)
+						date = this._local_to_utc(date);
+					dates.push(date);
+				}, this));
+				fromArgs = true;
+			}
+			else {
+				dates = this.isInput
+						? this.element.val()
+						: this.element.data('date') || this.element.find('input').val();
+				if (dates && this.o.multidate)
+					dates = dates.split(this.o.multidateSeparator);
+				else
+					dates = [dates];
+				delete this.element.data().date;
+			}
+
+			dates = $.map(dates, $.proxy(function(date){
+				return DPGlobal.parseDate(date, this.o.format, this.o.language);
+			}, this));
+			dates = $.grep(dates, $.proxy(function(date){
+				return (
+					date < this.o.startDate ||
+					date > this.o.endDate ||
+					!date
+				);
+			}, this), true);
+			this.dates.replace(dates);
+
+			if (this.dates.length)
+				this.viewDate = new Date(this.dates.get(-1));
+			else if (this.viewDate < this.o.startDate)
+				this.viewDate = new Date(this.o.startDate);
+			else if (this.viewDate > this.o.endDate)
+				this.viewDate = new Date(this.o.endDate);
+
+			if (fromArgs){
+				// setting date by clicking
+				this.setValue();
+			}
+			else if (dates.length){
+				// setting date by typing
+				if (String(oldDates) !== String(this.dates))
+					this._trigger('changeDate');
+			}
+			if (!this.dates.length && oldDates.length)
+				this._trigger('clearDate');
+
+			this.fill();
+		},
+
+		fillDow: function(){
+			var dowCnt = this.o.weekStart,
+				html = '<tr>';
+			if (this.o.calendarWeeks){
+				var cell = '<th class="cw">&nbsp;</th>';
+				html += cell;
+				this.picker.find('.datepicker-days thead tr:first-child').prepend(cell);
+			}
+			while (dowCnt < this.o.weekStart + 7){
+				html += '<th class="dow">'+dates[this.o.language].daysMin[(dowCnt++)%7]+'</th>';
+			}
+			html += '</tr>';
+			this.picker.find('.datepicker-days thead').append(html);
+		},
+
+		fillMonths: function(){
+			var html = '',
+			i = 0;
+			while (i < 12){
+				html += '<span class="month">'+dates[this.o.language].monthsShort[i++]+'</span>';
+			}
+			this.picker.find('.datepicker-months td').html(html);
+		},
+
+		setRange: function(range){
+			if (!range || !range.length)
+				delete this.range;
+			else
+				this.range = $.map(range, function(d){
+					return d.valueOf();
+				});
+			this.fill();
+		},
+
+		getClassNames: function(date){
+			var cls = [],
+				year = this.viewDate.getUTCFullYear(),
+				month = this.viewDate.getUTCMonth(),
+				today = new Date();
+			if (date.getUTCFullYear() < year || (date.getUTCFullYear() === year && date.getUTCMonth() < month)){
+				cls.push('old');
+			}
+			else if (date.getUTCFullYear() > year || (date.getUTCFullYear() === year && date.getUTCMonth() > month)){
+				cls.push('new');
+			}
+			if (this.focusDate && date.valueOf() === this.focusDate.valueOf())
+				cls.push('focused');
+			// Compare internal UTC date with local today, not UTC today
+			if (this.o.todayHighlight &&
+				date.getUTCFullYear() === today.getFullYear() &&
+				date.getUTCMonth() === today.getMonth() &&
+				date.getUTCDate() === today.getDate()){
+				cls.push('today');
+			}
+			if (this.dates.contains(date) !== -1)
+				cls.push('active');
+			if (date.valueOf() < this.o.startDate || date.valueOf() > this.o.endDate ||
+				$.inArray(date.getUTCDay(), this.o.daysOfWeekDisabled) !== -1){
+				cls.push('disabled');
+			}
+			if (this.range){
+				if (date > this.range[0] && date < this.range[this.range.length-1]){
+					cls.push('range');
+				}
+				if ($.inArray(date.valueOf(), this.range) !== -1){
+					cls.push('selected');
+				}
+			}
+			return cls;
+		},
+
+		fill: function(){
+			var d = new Date(this.viewDate),
+				year = d.getUTCFullYear(),
+				month = d.getUTCMonth(),
+				startYear = this.o.startDate !== -Infinity ? this.o.startDate.getUTCFullYear() : -Infinity,
+				startMonth = this.o.startDate !== -Infinity ? this.o.startDate.getUTCMonth() : -Infinity,
+				endYear = this.o.endDate !== Infinity ? this.o.endDate.getUTCFullYear() : Infinity,
+				endMonth = this.o.endDate !== Infinity ? this.o.endDate.getUTCMonth() : Infinity,
+				todaytxt = dates[this.o.language].today || dates['en'].today || '',
+				cleartxt = dates[this.o.language].clear || dates['en'].clear || '',
+				tooltip;
+			this.picker.find('.datepicker-days thead th.datepicker-switch')
+						.text(dates[this.o.language].months[month]+' '+year);
+			this.picker.find('tfoot th.today')
+						.text(todaytxt)
+						.toggle(this.o.todayBtn !== false);
+			this.picker.find('tfoot th.clear')
+						.text(cleartxt)
+						.toggle(this.o.clearBtn !== false);
+			this.updateNavArrows();
+			this.fillMonths();
+			var prevMonth = UTCDate(year, month-1, 28),
+				day = DPGlobal.getDaysInMonth(prevMonth.getUTCFullYear(), prevMonth.getUTCMonth());
+			prevMonth.setUTCDate(day);
+			prevMonth.setUTCDate(day - (prevMonth.getUTCDay() - this.o.weekStart + 7)%7);
+			var nextMonth = new Date(prevMonth);
+			nextMonth.setUTCDate(nextMonth.getUTCDate() + 42);
+			nextMonth = nextMonth.valueOf();
+			var html = [];
+			var clsName;
+			while (prevMonth.valueOf() < nextMonth){
+				if (prevMonth.getUTCDay() === this.o.weekStart){
+					html.push('<tr>');
+					if (this.o.calendarWeeks){
+						// ISO 8601: First week contains first thursday.
+						// ISO also states week starts on Monday, but we can be more abstract here.
+						var
+							// Start of current week: based on weekstart/current date
+							ws = new Date(+prevMonth + (this.o.weekStart - prevMonth.getUTCDay() - 7) % 7 * 864e5),
+							// Thursday of this week
+							th = new Date(Number(ws) + (7 + 4 - ws.getUTCDay()) % 7 * 864e5),
+							// First Thursday of year, year from thursday
+							yth = new Date(Number(yth = UTCDate(th.getUTCFullYear(), 0, 1)) + (7 + 4 - yth.getUTCDay())%7*864e5),
+							// Calendar week: ms between thursdays, div ms per day, div 7 days
+							calWeek =  (th - yth) / 864e5 / 7 + 1;
+						html.push('<td class="cw">'+ calWeek +'</td>');
+
+					}
+				}
+				clsName = this.getClassNames(prevMonth);
+				clsName.push('day');
+
+				if (this.o.beforeShowDay !== $.noop){
+					var before = this.o.beforeShowDay(this._utc_to_local(prevMonth));
+					if (before === undefined)
+						before = {};
+					else if (typeof(before) === 'boolean')
+						before = {enabled: before};
+					else if (typeof(before) === 'string')
+						before = {classes: before};
+					if (before.enabled === false)
+						clsName.push('disabled');
+					if (before.classes)
+						clsName = clsName.concat(before.classes.split(/\s+/));
+					if (before.tooltip)
+						tooltip = before.tooltip;
+				}
+
+				clsName = $.unique(clsName);
+				html.push('<td class="'+clsName.join(' ')+'"' + (tooltip ? ' title="'+tooltip+'"' : '') + '>'+prevMonth.getUTCDate() + '</td>');
+				if (prevMonth.getUTCDay() === this.o.weekEnd){
+					html.push('</tr>');
+				}
+				prevMonth.setUTCDate(prevMonth.getUTCDate()+1);
+			}
+			this.picker.find('.datepicker-days tbody').empty().append(html.join(''));
+
+			var months = this.picker.find('.datepicker-months')
+						.find('th:eq(1)')
+							.text(year)
+							.end()
+						.find('span').removeClass('active');
+
+			$.each(this.dates, function(i, d){
+				if (d.getUTCFullYear() === year)
+					months.eq(d.getUTCMonth()).addClass('active');
+			});
+
+			if (year < startYear || year > endYear){
+				months.addClass('disabled');
+			}
+			if (year === startYear){
+				months.slice(0, startMonth).addClass('disabled');
+			}
+			if (year === endYear){
+				months.slice(endMonth+1).addClass('disabled');
+			}
+
+			html = '';
+			year = parseInt(year/10, 10) * 10;
+			var yearCont = this.picker.find('.datepicker-years')
+								.find('th:eq(1)')
+									.text(year + '-' + (year + 9))
+									.end()
+								.find('td');
+			year -= 1;
+			var years = $.map(this.dates, function(d){
+					return d.getUTCFullYear();
+				}),
+				classes;
+			for (var i = -1; i < 11; i++){
+				classes = ['year'];
+				if (i === -1)
+					classes.push('old');
+				else if (i === 10)
+					classes.push('new');
+				if ($.inArray(year, years) !== -1)
+					classes.push('active');
+				if (year < startYear || year > endYear)
+					classes.push('disabled');
+				html += '<span class="' + classes.join(' ') + '">'+year+'</span>';
+				year += 1;
+			}
+			yearCont.html(html);
+		},
+
+		updateNavArrows: function(){
+			if (!this._allow_update)
+				return;
+
+			var d = new Date(this.viewDate),
+				year = d.getUTCFullYear(),
+				month = d.getUTCMonth();
+			switch (this.viewMode){
+				case 0:
+					if (this.o.startDate !== -Infinity && year <= this.o.startDate.getUTCFullYear() && month <= this.o.startDate.getUTCMonth()){
+						this.picker.find('.prev').css({visibility: 'hidden'});
+					}
+					else {
+						this.picker.find('.prev').css({visibility: 'visible'});
+					}
+					if (this.o.endDate !== Infinity && year >= this.o.endDate.getUTCFullYear() && month >= this.o.endDate.getUTCMonth()){
+						this.picker.find('.next').css({visibility: 'hidden'});
+					}
+					else {
+						this.picker.find('.next').css({visibility: 'visible'});
+					}
+					break;
+				case 1:
+				case 2:
+					if (this.o.startDate !== -Infinity && year <= this.o.startDate.getUTCFullYear()){
+						this.picker.find('.prev').css({visibility: 'hidden'});
+					}
+					else {
+						this.picker.find('.prev').css({visibility: 'visible'});
+					}
+					if (this.o.endDate !== Infinity && year >= this.o.endDate.getUTCFullYear()){
+						this.picker.find('.next').css({visibility: 'hidden'});
+					}
+					else {
+						this.picker.find('.next').css({visibility: 'visible'});
+					}
+					break;
+			}
+		},
+
+		click: function(e){
+			e.preventDefault();
+			var target = $(e.target).closest('span, td, th'),
+				year, month, day;
+			if (target.length === 1){
+				switch (target[0].nodeName.toLowerCase()){
+					case 'th':
+						switch (target[0].className){
+							case 'datepicker-switch':
+								this.showMode(1);
+								break;
+							case 'prev':
+							case 'next':
+								var dir = DPGlobal.modes[this.viewMode].navStep * (target[0].className === 'prev' ? -1 : 1);
+								switch (this.viewMode){
+									case 0:
+										this.viewDate = this.moveMonth(this.viewDate, dir);
+										this._trigger('changeMonth', this.viewDate);
+										break;
+									case 1:
+									case 2:
+										this.viewDate = this.moveYear(this.viewDate, dir);
+										if (this.viewMode === 1)
+											this._trigger('changeYear', this.viewDate);
+										break;
+								}
+								this.fill();
+								break;
+							case 'today':
+								var date = new Date();
+								date = UTCDate(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
+
+								this.showMode(-2);
+								var which = this.o.todayBtn === 'linked' ? null : 'view';
+								this._setDate(date, which);
+								break;
+							case 'clear':
+								var element;
+								if (this.isInput)
+									element = this.element;
+								else if (this.component)
+									element = this.element.find('input');
+								if (element)
+									element.val("").change();
+								this.update();
+								this._trigger('changeDate');
+								if (this.o.autoclose)
+									this.hide();
+								break;
+						}
+						break;
+					case 'span':
+						if (!target.is('.disabled')){
+							this.viewDate.setUTCDate(1);
+							if (target.is('.month')){
+								day = 1;
+								month = target.parent().find('span').index(target);
+								year = this.viewDate.getUTCFullYear();
+								this.viewDate.setUTCMonth(month);
+								this._trigger('changeMonth', this.viewDate);
+								if (this.o.minViewMode === 1){
+									this._setDate(UTCDate(year, month, day));
+								}
+							}
+							else {
+								day = 1;
+								month = 0;
+								year = parseInt(target.text(), 10)||0;
+								this.viewDate.setUTCFullYear(year);
+								this._trigger('changeYear', this.viewDate);
+								if (this.o.minViewMode === 2){
+									this._setDate(UTCDate(year, month, day));
+								}
+							}
+							this.showMode(-1);
+							this.fill();
+						}
+						break;
+					case 'td':
+						if (target.is('.day') && !target.is('.disabled')){
+							day = parseInt(target.text(), 10)||1;
+							year = this.viewDate.getUTCFullYear();
+							month = this.viewDate.getUTCMonth();
+							if (target.is('.old')){
+								if (month === 0){
+									month = 11;
+									year -= 1;
+								}
+								else {
+									month -= 1;
+								}
+							}
+							else if (target.is('.new')){
+								if (month === 11){
+									month = 0;
+									year += 1;
+								}
+								else {
+									month += 1;
+								}
+							}
+							this._setDate(UTCDate(year, month, day));
+						}
+						break;
+				}
+			}
+			if (this.picker.is(':visible') && this._focused_from){
+				$(this._focused_from).focus();
+			}
+			delete this._focused_from;
+		},
+
+		_toggle_multidate: function(date){
+			var ix = this.dates.contains(date);
+			if (!date){
+				this.dates.clear();
+			}
+			else if (ix !== -1){
+				this.dates.remove(ix);
+			}
+			else {
+				this.dates.push(date);
+			}
+			if (typeof this.o.multidate === 'number')
+				while (this.dates.length > this.o.multidate)
+					this.dates.remove(0);
+		},
+
+		_setDate: function(date, which){
+			if (!which || which === 'date')
+				this._toggle_multidate(date && new Date(date));
+			if (!which || which  === 'view')
+				this.viewDate = date && new Date(date);
+
+			this.fill();
+			this.setValue();
+			this._trigger('changeDate');
+			var element;
+			if (this.isInput){
+				element = this.element;
+			}
+			else if (this.component){
+				element = this.element.find('input');
+			}
+			if (element){
+				element.change();
+			}
+			if (this.o.autoclose && (!which || which === 'date')){
+				this.hide();
+			}
+		},
+
+		moveMonth: function(date, dir){
+			if (!date)
+				return undefined;
+			if (!dir)
+				return date;
+			var new_date = new Date(date.valueOf()),
+				day = new_date.getUTCDate(),
+				month = new_date.getUTCMonth(),
+				mag = Math.abs(dir),
+				new_month, test;
+			dir = dir > 0 ? 1 : -1;
+			if (mag === 1){
+				test = dir === -1
+					// If going back one month, make sure month is not current month
+					// (eg, Mar 31 -> Feb 31 == Feb 28, not Mar 02)
+					? function(){
+						return new_date.getUTCMonth() === month;
+					}
+					// If going forward one month, make sure month is as expected
+					// (eg, Jan 31 -> Feb 31 == Feb 28, not Mar 02)
+					: function(){
+						return new_date.getUTCMonth() !== new_month;
+					};
+				new_month = month + dir;
+				new_date.setUTCMonth(new_month);
+				// Dec -> Jan (12) or Jan -> Dec (-1) -- limit expected date to 0-11
+				if (new_month < 0 || new_month > 11)
+					new_month = (new_month + 12) % 12;
+			}
+			else {
+				// For magnitudes >1, move one month at a time...
+				for (var i=0; i < mag; i++)
+					// ...which might decrease the day (eg, Jan 31 to Feb 28, etc)...
+					new_date = this.moveMonth(new_date, dir);
+				// ...then reset the day, keeping it in the new month
+				new_month = new_date.getUTCMonth();
+				new_date.setUTCDate(day);
+				test = function(){
+					return new_month !== new_date.getUTCMonth();
+				};
+			}
+			// Common date-resetting loop -- if date is beyond end of month, make it
+			// end of month
+			while (test()){
+				new_date.setUTCDate(--day);
+				new_date.setUTCMonth(new_month);
+			}
+			return new_date;
+		},
+
+		moveYear: function(date, dir){
+			return this.moveMonth(date, dir*12);
+		},
+
+		dateWithinRange: function(date){
+			return date >= this.o.startDate && date <= this.o.endDate;
+		},
+
+		keydown: function(e){
+			if (this.picker.is(':not(:visible)')){
+				if (e.keyCode === 27) // allow escape to hide and re-show picker
+					this.show();
+				return;
+			}
+			var dateChanged = false,
+				dir, newDate, newViewDate,
+				focusDate = this.focusDate || this.viewDate;
+			switch (e.keyCode){
+				case 27: // escape
+					if (this.focusDate){
+						this.focusDate = null;
+						this.viewDate = this.dates.get(-1) || this.viewDate;
+						this.fill();
+					}
+					else
+						this.hide();
+					e.preventDefault();
+					break;
+				case 37: // left
+				case 39: // right
+					if (!this.o.keyboardNavigation)
+						break;
+					dir = e.keyCode === 37 ? -1 : 1;
+					if (e.ctrlKey){
+						newDate = this.moveYear(this.dates.get(-1) || UTCToday(), dir);
+						newViewDate = this.moveYear(focusDate, dir);
+						this._trigger('changeYear', this.viewDate);
+					}
+					else if (e.shiftKey){
+						newDate = this.moveMonth(this.dates.get(-1) || UTCToday(), dir);
+						newViewDate = this.moveMonth(focusDate, dir);
+						this._trigger('changeMonth', this.viewDate);
+					}
+					else {
+						newDate = new Date(this.dates.get(-1) || UTCToday());
+						newDate.setUTCDate(newDate.getUTCDate() + dir);
+						newViewDate = new Date(focusDate);
+						newViewDate.setUTCDate(focusDate.getUTCDate() + dir);
+					}
+					if (this.dateWithinRange(newDate)){
+						this.focusDate = this.viewDate = newViewDate;
+						this.setValue();
+						this.fill();
+						e.preventDefault();
+					}
+					break;
+				case 38: // up
+				case 40: // down
+					if (!this.o.keyboardNavigation)
+						break;
+					dir = e.keyCode === 38 ? -1 : 1;
+					if (e.ctrlKey){
+						newDate = this.moveYear(this.dates.get(-1) || UTCToday(), dir);
+						newViewDate = this.moveYear(focusDate, dir);
+						this._trigger('changeYear', this.viewDate);
+					}
+					else if (e.shiftKey){
+						newDate = this.moveMonth(this.dates.get(-1) || UTCToday(), dir);
+						newViewDate = this.moveMonth(focusDate, dir);
+						this._trigger('changeMonth', this.viewDate);
+					}
+					else {
+						newDate = new Date(this.dates.get(-1) || UTCToday());
+						newDate.setUTCDate(newDate.getUTCDate() + dir * 7);
+						newViewDate = new Date(focusDate);
+						newViewDate.setUTCDate(focusDate.getUTCDate() + dir * 7);
+					}
+					if (this.dateWithinRange(newDate)){
+						this.focusDate = this.viewDate = newViewDate;
+						this.setValue();
+						this.fill();
+						e.preventDefault();
+					}
+					break;
+				case 32: // spacebar
+					// Spacebar is used in manually typing dates in some formats.
+					// As such, its behavior should not be hijacked.
+					break;
+				case 13: // enter
+					focusDate = this.focusDate || this.dates.get(-1) || this.viewDate;
+					this._toggle_multidate(focusDate);
+					dateChanged = true;
+					this.focusDate = null;
+					this.viewDate = this.dates.get(-1) || this.viewDate;
+					this.setValue();
+					this.fill();
+					if (this.picker.is(':visible')){
+						e.preventDefault();
+						if (this.o.autoclose)
+							this.hide();
+					}
+					break;
+				case 9: // tab
+					this.focusDate = null;
+					this.viewDate = this.dates.get(-1) || this.viewDate;
+					this.fill();
+					this.hide();
+					break;
+			}
+			if (dateChanged){
+				if (this.dates.length)
+					this._trigger('changeDate');
+				else
+					this._trigger('clearDate');
+				var element;
+				if (this.isInput){
+					element = this.element;
+				}
+				else if (this.component){
+					element = this.element.find('input');
+				}
+				if (element){
+					element.change();
+				}
+			}
+		},
+
+		showMode: function(dir){
+			if (dir){
+				this.viewMode = Math.max(this.o.minViewMode, Math.min(2, this.viewMode + dir));
+			}
+			this.picker
+				.find('>div')
+				.hide()
+				.filter('.datepicker-'+DPGlobal.modes[this.viewMode].clsName)
+					.css('display', 'block');
+			this.updateNavArrows();
+		}
+	};
+
+	var DateRangePicker = function(element, options){
+		this.element = $(element);
+		this.inputs = $.map(options.inputs, function(i){
+			return i.jquery ? i[0] : i;
+		});
+		delete options.inputs;
+
+		$(this.inputs)
+			.datepicker(options)
+			.bind('changeDate', $.proxy(this.dateUpdated, this));
+
+		this.pickers = $.map(this.inputs, function(i){
+			return $(i).data('datepicker');
+		});
+		this.updateDates();
+	};
+	DateRangePicker.prototype = {
+		updateDates: function(){
+			this.dates = $.map(this.pickers, function(i){
+				return i.getUTCDate();
+			});
+			this.updateRanges();
+		},
+		updateRanges: function(){
+			var range = $.map(this.dates, function(d){
+				return d.valueOf();
+			});
+			$.each(this.pickers, function(i, p){
+				p.setRange(range);
+			});
+		},
+		dateUpdated: function(e){
+			// `this.updating` is a workaround for preventing infinite recursion
+			// between `changeDate` triggering and `setUTCDate` calling.  Until
+			// there is a better mechanism.
+			if (this.updating)
+				return;
+			this.updating = true;
+
+			var dp = $(e.target).data('datepicker'),
+				new_date = dp.getUTCDate(),
+				i = $.inArray(e.target, this.inputs),
+				l = this.inputs.length;
+			if (i === -1)
+				return;
+
+			$.each(this.pickers, function(i, p){
+				if (!p.getUTCDate())
+					p.setUTCDate(new_date);
+			});
+
+			if (new_date < this.dates[i]){
+				// Date being moved earlier/left
+				while (i >= 0 && new_date < this.dates[i]){
+					this.pickers[i--].setUTCDate(new_date);
+				}
+			}
+			else if (new_date > this.dates[i]){
+				// Date being moved later/right
+				while (i < l && new_date > this.dates[i]){
+					this.pickers[i++].setUTCDate(new_date);
+				}
+			}
+			this.updateDates();
+
+			delete this.updating;
+		},
+		remove: function(){
+			$.map(this.pickers, function(p){ p.remove(); });
+			delete this.element.data().datepicker;
+		}
+	};
+
+	function opts_from_el(el, prefix){
+		// Derive options from element data-attrs
+		var data = $(el).data(),
+			out = {}, inkey,
+			replace = new RegExp('^' + prefix.toLowerCase() + '([A-Z])');
+		prefix = new RegExp('^' + prefix.toLowerCase());
+		function re_lower(_,a){
+			return a.toLowerCase();
+		}
+		for (var key in data)
+			if (prefix.test(key)){
+				inkey = key.replace(replace, re_lower);
+				out[inkey] = data[key];
+			}
+		return out;
+	}
+
+	function opts_from_locale(lang){
+		// Derive options from locale plugins
+		var out = {};
+		// Check if "de-DE" style date is available, if not language should
+		// fallback to 2 letter code eg "de"
+		if (!dates[lang]){
+			lang = lang.split('-')[0];
+			if (!dates[lang])
+				return;
+		}
+		var d = dates[lang];
+		$.each(locale_opts, function(i,k){
+			if (k in d)
+				out[k] = d[k];
+		});
+		return out;
+	}
+
+	var old = $.fn.datepicker;
+	$.fn.datepicker = function(option){
+		var args = Array.apply(null, arguments);
+		args.shift();
+		var internal_return;
+		this.each(function(){
+			var $this = $(this),
+				data = $this.data('datepicker'),
+				options = typeof option === 'object' && option;
+			if (!data){
+				var elopts = opts_from_el(this, 'date'),
+					// Preliminary otions
+					xopts = $.extend({}, defaults, elopts, options),
+					locopts = opts_from_locale(xopts.language),
+					// Options priority: js args, data-attrs, locales, defaults
+					opts = $.extend({}, defaults, locopts, elopts, options);
+				if ($this.is('.input-daterange') || opts.inputs){
+					var ropts = {
+						inputs: opts.inputs || $this.find('input').toArray()
+					};
+					$this.data('datepicker', (data = new DateRangePicker(this, $.extend(opts, ropts))));
+				}
+				else {
+					$this.data('datepicker', (data = new Datepicker(this, opts)));
+				}
+			}
+			if (typeof option === 'string' && typeof data[option] === 'function'){
+				internal_return = data[option].apply(data, args);
+				if (internal_return !== undefined)
+					return false;
+			}
+		});
+		if (internal_return !== undefined)
+			return internal_return;
+		else
+			return this;
+	};
+
+	var defaults = $.fn.datepicker.defaults = {
+		autoclose: false,
+		beforeShowDay: $.noop,
+		calendarWeeks: false,
+		clearBtn: false,
+		daysOfWeekDisabled: [],
+		endDate: Infinity,
+		forceParse: true,
+		format: 'mm/dd/yyyy',
+		keyboardNavigation: true,
+		language: 'en',
+		minViewMode: 0,
+		multidate: false,
+		multidateSeparator: ',',
+		orientation: "auto",
+		rtl: false,
+		startDate: -Infinity,
+		startView: 0,
+		todayBtn: false,
+		todayHighlight: false,
+		weekStart: 0
+	};
+	var locale_opts = $.fn.datepicker.locale_opts = [
+		'format',
+		'rtl',
+		'weekStart'
+	];
+	$.fn.datepicker.Constructor = Datepicker;
+	var dates = $.fn.datepicker.dates = {
+		en: {
+			days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+			daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+			daysMin: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+			months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+			monthsShort: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+			today: "Today",
+			clear: "Clear"
+		}
+	};
+
+	var DPGlobal = {
+		modes: [
+			{
+				clsName: 'days',
+				navFnc: 'Month',
+				navStep: 1
+			},
+			{
+				clsName: 'months',
+				navFnc: 'FullYear',
+				navStep: 1
+			},
+			{
+				clsName: 'years',
+				navFnc: 'FullYear',
+				navStep: 10
+		}],
+		isLeapYear: function(year){
+			return (((year % 4 === 0) && (year % 100 !== 0)) || (year % 400 === 0));
+		},
+		getDaysInMonth: function(year, month){
+			return [31, (DPGlobal.isLeapYear(year) ? 29 : 28), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month];
+		},
+		validParts: /dd?|DD?|mm?|MM?|yy(?:yy)?/g,
+		nonpunctuation: /[^ -\/:-@\[\u3400-\u9fff-`{-~\t\n\r]+/g,
+		parseFormat: function(format){
+			// IE treats \0 as a string end in inputs (truncating the value),
+			// so it's a bad format delimiter, anyway
+			var separators = format.replace(this.validParts, '\0').split('\0'),
+				parts = format.match(this.validParts);
+			if (!separators || !separators.length || !parts || parts.length === 0){
+				throw new Error("Invalid date format.");
+			}
+			return {separators: separators, parts: parts};
+		},
+		parseDate: function(date, format, language){
+			if (!date)
+				return undefined;
+			if (date instanceof Date)
+				return date;
+			if (typeof format === 'string')
+				format = DPGlobal.parseFormat(format);
+			var part_re = /([\-+]\d+)([dmwy])/,
+				parts = date.match(/([\-+]\d+)([dmwy])/g),
+				part, dir, i;
+			if (/^[\-+]\d+[dmwy]([\s,]+[\-+]\d+[dmwy])*$/.test(date)){
+				date = new Date();
+				for (i=0; i < parts.length; i++){
+					part = part_re.exec(parts[i]);
+					dir = parseInt(part[1]);
+					switch (part[2]){
+						case 'd':
+							date.setUTCDate(date.getUTCDate() + dir);
+							break;
+						case 'm':
+							date = Datepicker.prototype.moveMonth.call(Datepicker.prototype, date, dir);
+							break;
+						case 'w':
+							date.setUTCDate(date.getUTCDate() + dir * 7);
+							break;
+						case 'y':
+							date = Datepicker.prototype.moveYear.call(Datepicker.prototype, date, dir);
+							break;
+					}
+				}
+				return UTCDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0);
+			}
+			parts = date && date.match(this.nonpunctuation) || [];
+			date = new Date();
+			var parsed = {},
+				setters_order = ['yyyy', 'yy', 'M', 'MM', 'm', 'mm', 'd', 'dd'],
+				setters_map = {
+					yyyy: function(d,v){
+						return d.setUTCFullYear(v);
+					},
+					yy: function(d,v){
+						return d.setUTCFullYear(2000+v);
+					},
+					m: function(d,v){
+						if (isNaN(d))
+							return d;
+						v -= 1;
+						while (v < 0) v += 12;
+						v %= 12;
+						d.setUTCMonth(v);
+						while (d.getUTCMonth() !== v)
+							d.setUTCDate(d.getUTCDate()-1);
+						return d;
+					},
+					d: function(d,v){
+						return d.setUTCDate(v);
+					}
+				},
+				val, filtered;
+			setters_map['M'] = setters_map['MM'] = setters_map['mm'] = setters_map['m'];
+			setters_map['dd'] = setters_map['d'];
+			date = UTCDate(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
+			var fparts = format.parts.slice();
+			// Remove noop parts
+			if (parts.length !== fparts.length){
+				fparts = $(fparts).filter(function(i,p){
+					return $.inArray(p, setters_order) !== -1;
+				}).toArray();
+			}
+			// Process remainder
+			function match_part(){
+				var m = this.slice(0, parts[i].length),
+					p = parts[i].slice(0, m.length);
+				return m === p;
+			}
+			if (parts.length === fparts.length){
+				var cnt;
+				for (i=0, cnt = fparts.length; i < cnt; i++){
+					val = parseInt(parts[i], 10);
+					part = fparts[i];
+					if (isNaN(val)){
+						switch (part){
+							case 'MM':
+								filtered = $(dates[language].months).filter(match_part);
+								val = $.inArray(filtered[0], dates[language].months) + 1;
+								break;
+							case 'M':
+								filtered = $(dates[language].monthsShort).filter(match_part);
+								val = $.inArray(filtered[0], dates[language].monthsShort) + 1;
+								break;
+						}
+					}
+					parsed[part] = val;
+				}
+				var _date, s;
+				for (i=0; i < setters_order.length; i++){
+					s = setters_order[i];
+					if (s in parsed && !isNaN(parsed[s])){
+						_date = new Date(date);
+						setters_map[s](_date, parsed[s]);
+						if (!isNaN(_date))
+							date = _date;
+					}
+				}
+			}
+			return date;
+		},
+		formatDate: function(date, format, language){
+			if (!date)
+				return '';
+			if (typeof format === 'string')
+				format = DPGlobal.parseFormat(format);
+			var val = {
+				d: date.getUTCDate(),
+				D: dates[language].daysShort[date.getUTCDay()],
+				DD: dates[language].days[date.getUTCDay()],
+				m: date.getUTCMonth() + 1,
+				M: dates[language].monthsShort[date.getUTCMonth()],
+				MM: dates[language].months[date.getUTCMonth()],
+				yy: date.getUTCFullYear().toString().substring(2),
+				yyyy: date.getUTCFullYear()
+			};
+			val.dd = (val.d < 10 ? '0' : '') + val.d;
+			val.mm = (val.m < 10 ? '0' : '') + val.m;
+			date = [];
+			var seps = $.extend([], format.separators);
+			for (var i=0, cnt = format.parts.length; i <= cnt; i++){
+				if (seps.length)
+					date.push(seps.shift());
+				date.push(val[format.parts[i]]);
+			}
+			return date.join('');
+		},
+		headTemplate: '<thead>'+
+							'<tr>'+
+								'<th class="prev">&laquo;</th>'+
+								'<th colspan="5" class="datepicker-switch"></th>'+
+								'<th class="next">&raquo;</th>'+
+							'</tr>'+
+						'</thead>',
+		contTemplate: '<tbody><tr><td colspan="7"></td></tr></tbody>',
+		footTemplate: '<tfoot>'+
+							'<tr>'+
+								'<th colspan="7" class="today"></th>'+
+							'</tr>'+
+							'<tr>'+
+								'<th colspan="7" class="clear"></th>'+
+							'</tr>'+
+						'</tfoot>'
+	};
+	DPGlobal.template = '<div class="datepicker">'+
+							'<div class="datepicker-days">'+
+								'<table class=" table-condensed">'+
+									DPGlobal.headTemplate+
+									'<tbody></tbody>'+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+							'<div class="datepicker-months">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									DPGlobal.contTemplate+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+							'<div class="datepicker-years">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									DPGlobal.contTemplate+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+						'</div>';
+
+	$.fn.datepicker.DPGlobal = DPGlobal;
+
+
+	/* DATEPICKER NO CONFLICT
+	* =================== */
+
+	$.fn.datepicker.noConflict = function(){
+		$.fn.datepicker = old;
+		return this;
+	};
+
+
+	/* DATEPICKER DATA-API
+	* ================== */
+
+	$(document).on(
+		'focus.datepicker.data-api click.datepicker.data-api',
+		'[data-provide="datepicker"]',
+		function(e){
+			var $this = $(this);
+			if ($this.data('datepicker'))
+				return;
+			e.preventDefault();
+			// component click requires us to explicitly show it
+			$this.datepicker('show');
+		}
+	);
+	$(function(){
+		$('[data-provide="datepicker-inline"]').datepicker();
+	});
+
+}(window.jQuery));
+/**
+ * Arabic translation for bootstrap-datepicker
+ * Mohammed Alshehri <alshehri866@gmail.com>
+ */
+
+;(function($){
+    $.fn.datepicker.dates['ar'] = {
+        days: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"],
+        daysShort: ["أحد", "اثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة", "سبت", "أحد"],
+        daysMin: ["ح", "ن", "ث", "ع", "خ", "ج", "س", "ح"],
+        months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+        monthsShort: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+        today: "هذا اليوم",
+        rtl: true
+    };
+}(jQuery));
+// Azerbaijani
+;(function($){
+    $.fn.datepicker.dates['az'] = {
+        days: ["Bazar", "Bazar ertəsi", "Çərşənbə axşamı", "Çərşənbə", "Cümə axşamı", "Cümə", "Şənbə", "Bazar"],
+        daysShort: ["B.", "B.e", "Ç.a", "Ç.", "C.a", "C.", "Ş.", "B."],
+        daysMin: ["B.", "B.e", "Ç.a", "Ç.", "C.a", "C.", "Ş.", "B."],
+        months: ["Yanvar", "Fevral", "Mart", "Aprel", "May", "İyun", "İyul", "Avqust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"],
+        monthsShort: ["Yan", "Fev", "Mar", "Apr", "May", "İyun", "İyul", "Avq", "Sen", "Okt", "Noy", "Dek"],
+        today: "Bu gün",
+        weekStart: 1
+    };
+}(jQuery));
+/**
+ * Bulgarian translation for bootstrap-datepicker
+ * Apostol Apostolov <apostol.s.apostolov@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['bg'] = {
+		days: ["Неделя", "Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота", "Неделя"],
+		daysShort: ["Нед", "Пон", "Вто", "Сря", "Чет", "Пет", "Съб", "Нед"],
+		daysMin: ["Н", "П", "В", "С", "Ч", "П", "С", "Н"],
+		months: ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"],
+		monthsShort: ["Ян", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"],
+		today: "днес"
+	};
+}(jQuery));
+/**
+ * Catalan translation for bootstrap-datepicker
+ * J. Garcia <jogaco.en@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['ca'] = {
+		days: ["Diumenge", "Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres", "Dissabte", "Diumenge"],
+		daysShort: ["Diu",  "Dil", "Dmt", "Dmc", "Dij", "Div", "Dis", "Diu"],
+		daysMin: ["dg", "dl", "dt", "dc", "dj", "dv", "ds", "dg"],
+		months: ["Gener", "Febrer", "Març", "Abril", "Maig", "Juny", "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"],
+		monthsShort: ["Gen", "Feb", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Des"],
+		today: "Avui"
+	};
+}(jQuery));
+/**
+ * Czech translation for bootstrap-datepicker
+ * Matěj Koubík <matej@koubik.name>
+ * Fixes by Michal Remiš <michal.remis@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['cs'] = {
+		days: ["Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"],
+		daysShort: ["Ned", "Pon", "Úte", "Stř", "Čtv", "Pát", "Sob", "Ned"],
+		daysMin: ["Ne", "Po", "Út", "St", "Čt", "Pá", "So", "Ne"],
+		months: ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"],
+		monthsShort: ["Led", "Úno", "Bře", "Dub", "Kvě", "Čer", "Čnc", "Srp", "Zář", "Říj", "Lis", "Pro"],
+		today: "Dnes"
+	};
+}(jQuery));
+/**
+ * Welsh translation for bootstrap-datepicker
+ * S. Morris <s.morris@bangor.ac.uk>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['cy'] = {
+		days: ["Sul", "Llun", "Mawrth", "Mercher", "Iau", "Gwener", "Sadwrn", "Sul"],
+		daysShort: ["Sul", "Llu", "Maw", "Mer", "Iau", "Gwe", "Sad", "Sul"],
+		daysMin: ["Su", "Ll", "Ma", "Me", "Ia", "Gwe", "Sa", "Su"],
+		months: ["Ionawr", "Chewfror", "Mawrth", "Ebrill", "Mai", "Mehefin", "Gorfennaf", "Awst", "Medi", "Hydref", "Tachwedd", "Rhagfyr"],
+		monthsShort: ["Ion", "Chw", "Maw", "Ebr", "Mai", "Meh", "Gor", "Aws", "Med", "Hyd", "Tach", "Rha"],
+		today: "Heddiw"
+	};
+}(jQuery));
+/**
+ * Danish translation for bootstrap-datepicker
+ * Christian Pedersen <http://github.com/chripede>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['da'] = {
+		days: ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"],
+		daysShort: ["Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"],
+		daysMin: ["Sø", "Ma", "Ti", "On", "To", "Fr", "Lø", "Sø"],
+		months: ["Januar", "Februar", "Marts", "April", "Maj", "Juni", "Juli", "August", "September", "Oktober", "November", "December"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
+		today: "I Dag",
+		clear: "Nulstil"
+	};
+}(jQuery));
+/**
+ * German translation for bootstrap-datepicker
+ * Sam Zurcher <sam@orelias.ch>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['de'] = {
+		days: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
+		daysShort: ["Son", "Mon", "Die", "Mit", "Don", "Fre", "Sam", "Son"],
+		daysMin: ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
+		months: ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+		monthsShort: ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"],
+		today: "Heute",
+		clear: "Löschen",
+		weekStart: 1,
+		format: "dd.mm.yyyy"
+	};
+}(jQuery));
+/**
+ * Greek translation for bootstrap-datepicker
+ */
+
+;(function($){
+  $.fn.datepicker.dates['el'] = {
+    days: ["Κυριακή", "Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"],
+    daysShort: ["Κυρ", "Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"],
+    daysMin: ["Κυ", "Δε", "Τρ", "Τε", "Πε", "Πα", "Σα", "Κυ"],
+    months: ["Ιανουάριος", "Φεβρουάριος", "Μάρτιος", "Απρίλιος", "Μάιος", "Ιούνιος", "Ιούλιος", "Αύγουστος", "Σεπτέμβριος", "Οκτώβριος", "Νοέμβριος", "Δεκέμβριος"],
+    monthsShort: ["Ιαν", "Φεβ", "Μαρ", "Απρ", "Μάι", "Ιουν", "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ"],
+    today: "Σήμερα"
+  };
+}(jQuery));
+/**
+ * Spanish translation for bootstrap-datepicker
+ * Bruno Bonamin <bruno.bonamin@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['es'] = {
+		days: ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"],
+		daysShort: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
+		daysMin: ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"],
+		months: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
+		monthsShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+		today: "Hoy"
+	};
+}(jQuery));
+/**
+ * Estonian translation for bootstrap-datepicker
+ * Ando Roots <https://github.com/anroots>
+ * Fixes by Illimar Tambek <<https://github.com/ragulka>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['et'] = {
+		days: ["Pühapäev", "Esmaspäev", "Teisipäev", "Kolmapäev", "Neljapäev", "Reede", "Laupäev", "Pühapäev"],
+		daysShort: ["Pühap", "Esmasp", "Teisip", "Kolmap", "Neljap", "Reede", "Laup", "Pühap"],
+		daysMin: ["P", "E", "T", "K", "N", "R", "L", "P"],
+		months: ["Jaanuar", "Veebruar", "Märts", "Aprill", "Mai", "Juuni", "Juuli", "August", "September", "Oktoober", "November", "Detsember"],
+		monthsShort: ["Jaan", "Veebr", "Märts", "Apr", "Mai", "Juuni", "Juuli", "Aug", "Sept", "Okt", "Nov", "Dets"],
+		today: "Täna",
+		clear: "Tühjenda",
+		weekStart: 1,
+		format: "dd.mm.yyyy"
+	};
+}(jQuery));
+/**
+ * Persian translation for bootstrap-datepicker
+ * Mostafa Rokooie <mostafa.rokooie@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['fa'] = {
+		days: ["یک‌شنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه", "شنبه", "یک‌شنبه"],
+		daysShort: ["یک", "دو", "سه", "چهار", "پنج", "جمعه", "شنبه", "یک"],
+		daysMin: ["ی", "د", "س", "چ", "پ", "ج", "ش", "ی"],
+		months: ["ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"],
+		monthsShort: ["ژان", "فور", "مار", "آور", "مه", "ژون", "ژوی", "اوت", "سپت", "اکت", "نوا", "دسا"],
+		today: "امروز",
+		clear: "پاک کن",
+		weekStart: 1,
+		format: "yyyy/mm/dd"
+	};
+}(jQuery));
+/**
+ * Finnish translation for bootstrap-datepicker
+ * Jaakko Salonen <https://github.com/jsalonen>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['fi'] = {
+		days: ["sunnuntai", "maanantai", "tiistai", "keskiviikko", "torstai", "perjantai", "lauantai", "sunnuntai"],
+		daysShort: ["sun", "maa", "tii", "kes", "tor", "per", "lau", "sun"],
+		daysMin: ["su", "ma", "ti", "ke", "to", "pe", "la", "su"],
+		months: ["tammikuu", "helmikuu", "maaliskuu", "huhtikuu", "toukokuu", "kesäkuu", "heinäkuu", "elokuu", "syyskuu", "lokakuu", "marraskuu", "joulukuu"],
+		monthsShort: ["tam", "hel", "maa", "huh", "tou", "kes", "hei", "elo", "syy", "lok", "mar", "jou"],
+		today: "tänään",
+		weekStart: 1,
+		format: "d.m.yyyy"
+	};
+}(jQuery));
+/**
+ * French translation for bootstrap-datepicker
+ * Nico Mollet <nico.mollet@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['fr'] = {
+		days: ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"],
+		daysShort: ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"],
+		daysMin: ["D", "L", "Ma", "Me", "J", "V", "S", "D"],
+		months: ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"],
+		monthsShort: ["Jan", "Fév", "Mar", "Avr", "Mai", "Jui", "Jul", "Aou", "Sep", "Oct", "Nov", "Déc"],
+		today: "Aujourd'hui",
+		clear: "Effacer",
+		weekStart: 1,
+		format: "dd/mm/yyyy"
+	};
+}(jQuery));
+;(function($){
+	$.fn.datepicker.dates['gl'] = {
+		days: ["Domingo", "Luns", "Martes", "Mércores", "Xoves", "Venres", "Sábado", "Domingo"],
+		daysShort: ["Dom", "Lun", "Mar", "Mér", "Xov", "Ven", "Sáb", "Dom"],
+		daysMin: ["Do", "Lu", "Ma", "Me", "Xo", "Ve", "Sa", "Do"],
+		months: ["Xaneiro", "Febreiro", "Marzo", "Abril", "Maio", "Xuño", "Xullo", "Agosto", "Setembro", "Outubro", "Novembro", "Decembro"],
+		monthsShort: ["Xan", "Feb", "Mar", "Abr", "Mai", "Xun", "Xul", "Ago", "Sep", "Out", "Nov", "Dec"],
+		today: "Hoxe",
+		clear: "Limpar"
+	};
+}(jQuery));
+/**
+ * Hebrew translation for bootstrap-datepicker
+ * Sagie Maoz <sagie@maoz.info>
+ */
+
+;(function($){
+  $.fn.datepicker.dates['he'] = {
+      days: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"],
+      daysShort: ["א", "ב", "ג", "ד", "ה", "ו", "ש", "א"],
+      daysMin: ["א", "ב", "ג", "ד", "ה", "ו", "ש", "א"],
+      months: ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"],
+      monthsShort: ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ", "יול", "אוג", "ספט", "אוק", "נוב", "דצמ"],
+      today: "היום",
+      rtl: true
+  };
+}(jQuery));
+/**
+ * Croatian localisation
+ */
+
+;(function($){
+	$.fn.datepicker.dates['hr'] = {
+		days: ["Nedjelja", "Ponedjeljak", "Utorak", "Srijeda", "Četvrtak", "Petak", "Subota", "Nedjelja"],
+		daysShort: ["Ned", "Pon", "Uto", "Sri", "Čet", "Pet", "Sub", "Ned"],
+		daysMin: ["Ne", "Po", "Ut", "Sr", "Če", "Pe", "Su", "Ne"],
+		months: ["Siječanj", "Veljača", "Ožujak", "Travanj", "Svibanj", "Lipanj", "Srpanj", "Kolovoz", "Rujan", "Listopad", "Studeni", "Prosinac"],
+		monthsShort: ["Sij", "Velj", "Ožu", "Tra", "Svi", "Lip", "Srp", "Kol", "Ruj", "Lis", "Stu", "Pro"],
+		today: "Danas"
+	};
+}(jQuery));
+/**
+ * Hungarian translation for bootstrap-datepicker
+ * Sotus László <lacisan@gmail.com>
+ */
+
+;(function($){
+  $.fn.datepicker.dates['hu'] = {
+		days: ["Vasárnap", "Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"],
+		daysShort: ["Vas", "Hét", "Ked", "Sze", "Csü", "Pén", "Szo", "Vas"],
+		daysMin: ["Va", "Hé", "Ke", "Sz", "Cs", "Pé", "Sz", "Va"],
+		months: ["Január", "Február", "Március", "Április", "Május", "Június", "Július", "Augusztus", "Szeptember", "Október", "November", "December"],
+		monthsShort: ["Jan", "Feb", "Már", "Ápr", "Máj", "Jún", "Júl", "Aug", "Sze", "Okt", "Nov", "Dec"],
+		today: "Ma",
+		weekStart: 1,
+		format: "yyyy.mm.dd"
+	};
+}(jQuery));
+/**
+ * Bahasa translation for bootstrap-datepicker
+ * Azwar Akbar <azwar.akbar@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['id'] = {
+		days: ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"],
+		daysShort: ["Mgu", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Mgu"],
+		daysMin: ["Mg", "Sn", "Sl", "Ra", "Ka", "Ju", "Sa", "Mg"],
+		months: ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"],
+		today: "Hari Ini",
+		clear: "Kosongkan"
+	};
+}(jQuery));
+/**
+ * Icelandic translation for bootstrap-datepicker
+ * Hinrik Örn Sigurðsson <hinrik.sig@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['is'] = {
+		days: ["Sunnudagur", "Mánudagur", "Þriðjudagur", "Miðvikudagur", "Fimmtudagur", "Föstudagur", "Laugardagur", "Sunnudagur"],
+		daysShort: ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau", "Sun"],
+		daysMin: ["Su", "Má", "Þr", "Mi", "Fi", "Fö", "La", "Su"],
+		months: ["Janúar", "Febrúar", "Mars", "Apríl", "Maí", "Júní", "Júlí", "Ágúst", "September", "Október", "Nóvember", "Desember"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maí", "Jún", "Júl", "Ágú", "Sep", "Okt", "Nóv", "Des"],
+		today: "Í Dag"
+	};
+}(jQuery));
+/**
+ * Italian translation for bootstrap-datepicker
+ * Enrico Rubboli <rubboli@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['it'] = {
+		days: ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"],
+		daysShort: ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"],
+		daysMin: ["Do", "Lu", "Ma", "Me", "Gi", "Ve", "Sa", "Do"],
+		months: ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"],
+		monthsShort: ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"],
+		today: "Oggi",
+		clear: "Cancella",
+		weekStart: 1,
+		format: "dd/mm/yyyy"
+	};
+}(jQuery));
+/**
+ * Japanese translation for bootstrap-datepicker
+ * Norio Suzuki <https://github.com/suzuki/>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['ja'] = {
+		days: ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜", "日曜"],
+		daysShort: ["日", "月", "火", "水", "木", "金", "土", "日"],
+		daysMin: ["日", "月", "火", "水", "木", "金", "土", "日"],
+		months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+		monthsShort: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+		today: "今日",
+		format: "yyyy/mm/dd"
+	};
+}(jQuery));
+/**
+ * Georgian translation for bootstrap-datepicker
+ * Levan Melikishvili <levani0101@yahoo.com>
+ */
+
+;(function($){
+    $.fn.datepicker.dates['ka'] = {
+        days: ["კვირა", "ორშაბათი", "სამშაბათი", "ოთხშაბათი", "ხუთშაბათი", "პარასკევი", "შაბათი", "კვირა"],
+        daysShort: ["კვი", "ორშ", "სამ", "ოთხ", "ხუთ", "პარ", "შაბ", "კვი"],
+        daysMin: ["კვ", "ორ", "სა", "ოთ", "ხუ", "პა", "შა", "კვ"],
+        months: ["იანვარი", "თებერვალი", "მარტი", "აპრილი", "მაისი", "ივნისი", "ივლისი", "აგვისტო", "სექტემბერი", "ოქტომები", "ნოემბერი", "დეკემბერი"],
+        monthsShort: ["იან", "თებ", "მარ", "აპრ", "მაი", "ივნ", "ივლ", "აგვ", "სექ", "ოქტ", "ნოე", "დეკ"],
+        today: "დღეს",
+        clear: "გასუფთავება",
+        weekStart: 1,
+        format: "dd.mm.yyyy"
+    };
+}(jQuery));
+/**
+ * Kazakh translation for bootstrap-datepicker
+ * Yerzhan Tolekov <era.tolekov@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['kk'] = {
+		days: ["Жексенбі", "Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"],
+		daysShort: ["Жек", "Дүй", "Сей", "Сәр", "Бей", "Жұм", "Сен", "Жек"],
+		daysMin: ["Жк", "Дс", "Сс", "Ср", "Бс", "Жм", "Сн", "Жк"],
+		months: ["Қаңтар", "Ақпан", "Наурыз", "Сәуір", "Мамыр", "Маусым", "Шілде", "Тамыз", "Қыркүйек", "Қазан", "Қараша", "Желтоқсан"],
+		monthsShort: ["Қаң", "Ақп", "Нау", "Сәу", "Мамыр", "Мау", "Шлд", "Тмз", "Қыр", "Қзн", "Қар", "Жел"],
+		today: "Бүгін",
+		weekStart: 1
+	};
+}(jQuery));
+/**
+ * Korean translation for bootstrap-datepicker
+ * Gu Youn <http://github.com/guyoun>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['kr'] = {
+		days: ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"],
+		daysShort: ["일", "월", "화", "수", "목", "금", "토", "일"],
+		daysMin: ["일", "월", "화", "수", "목", "금", "토", "일"],
+		months: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
+		monthsShort: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"]
+	};
+}(jQuery));
+/**
+ * Lithuanian translation for bootstrap-datepicker
+ * Šarūnas Gliebus <ssharunas@yahoo.co.uk>
+ */
+
+
+;(function($){
+    $.fn.datepicker.dates['lt'] = {
+        days: ["Sekmadienis", "Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis", "Šeštadienis", "Sekmadienis"],
+        daysShort: ["S", "Pr", "A", "T", "K", "Pn", "Š", "S"],
+        daysMin: ["Sk", "Pr", "An", "Tr", "Ke", "Pn", "Št", "Sk"],
+        months: ["Sausis", "Vasaris", "Kovas", "Balandis", "Gegužė", "Birželis", "Liepa", "Rugpjūtis", "Rugsėjis", "Spalis", "Lapkritis", "Gruodis"],
+        monthsShort: ["Sau", "Vas", "Kov", "Bal", "Geg", "Bir", "Lie", "Rugp", "Rugs", "Spa", "Lap", "Gru"],
+        today: "Šiandien",
+        weekStart: 1
+    };
+}(jQuery));
+/**
+ * Latvian translation for bootstrap-datepicker
+ * Artis Avotins <artis@apit.lv>
+ */
+
+
+;(function($){
+    $.fn.datepicker.dates['lv'] = {
+        days: ["Svētdiena", "Pirmdiena", "Otrdiena", "Trešdiena", "Ceturtdiena", "Piektdiena", "Sestdiena", "Svētdiena"],
+        daysShort: ["Sv", "P", "O", "T", "C", "Pk", "S", "Sv"],
+        daysMin: ["Sv", "Pr", "Ot", "Tr", "Ce", "Pk", "Se", "Sv"],
+        months: ["Janvāris", "Februāris", "Marts", "Aprīlis", "Maijs", "Jūnijs", "Jūlijs", "Augusts", "Septembris", "Oktobris", "Novembris", "Decembris"],
+        monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mai", "Jūn", "Jūl", "Aug", "Sep", "Okt", "Nov", "Dec"],
+        today: "Šodien",
+        weekStart: 1
+    };
+}(jQuery));
+/**
+ * Macedonian translation for bootstrap-datepicker
+ * Marko Aleksic <psybaron@gmail.com>
+ */
+
+;(function($){
+    $.fn.datepicker.dates['mk'] = {
+        days: ["Недела", "Понеделник", "Вторник", "Среда", "Четврток", "Петок", "Сабота", "Недела"],
+        daysShort: ["Нед", "Пон", "Вто", "Сре", "Чет", "Пет", "Саб", "Нед"],
+        daysMin: ["Не", "По", "Вт", "Ср", "Че", "Пе", "Са", "Не"],
+        months: ["Јануари", "Февруари", "Март", "Април", "Мај", "Јуни", "Јули", "Август", "Септември", "Октомври", "Ноември", "Декември"],
+        monthsShort: ["Јан", "Фев", "Мар", "Апр", "Мај", "Јун", "Јул", "Авг", "Сеп", "Окт", "Ное", "Дек"],
+        today: "Денес",
+        format: "dd.mm.yyyy"
+    };
+}(jQuery));
+/**
+ * Malay translation for bootstrap-datepicker
+ * Ateman Faiz <noorulfaiz@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['ms'] = {
+		days: ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu", "Ahad"],
+		daysShort: ["Aha", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab", "Aha"],
+		daysMin: ["Ah", "Is", "Se", "Ra", "Kh", "Ju", "Sa", "Ah"],
+		months: ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ogo", "Sep", "Okt", "Nov", "Dis"],
+		today: "Hari Ini"
+	};
+}(jQuery));
+/**
+ * Norwegian (bokmål) translation for bootstrap-datepicker
+ * Fredrik Sundmyhr <http://github.com/fsundmyhr>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['nb'] = {
+		days: ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"],
+		daysShort: ["Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"],
+		daysMin: ["Sø", "Ma", "Ti", "On", "To", "Fr", "Lø", "Sø"],
+		months: ["Januar", "Februar", "Mars", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Desember"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Des"],
+		today: "I Dag"
+	};
+}(jQuery));
+/**
+ * Belgium-Dutch translation for bootstrap-datepicker
+ * Julien Poulin <poulin_julien@hotmail.com>
+ */
+
+;(function($){
+  $.fn.datepicker.dates['nl-BE'] = {
+    days: ["Zondag", "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"],
+    daysShort: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
+    daysMin: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
+    months: ["Januari", "Februari", "Maart", "April", "Mei", "Juni", "Juli", "Augustus", "September", "Oktober", "November", "December"],
+    monthsShort: ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
+    today: "Vandaag",
+    clear: "Leegmaken",
+    weekStart: 1,
+    format: "dd/mm/yyyy"
+  };
+}(jQuery));
+/**
+ * Dutch translation for bootstrap-datepicker
+ * Reinier Goltstein <mrgoltstein@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['nl'] = {
+		days: ["Zondag", "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"],
+		daysShort: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
+		daysMin: ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
+		months: ["Januari", "Februari", "Maart", "April", "Mei", "Juni", "Juli", "Augustus", "September", "Oktober", "November", "December"],
+		monthsShort: ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
+		today: "Vandaag"
+	};
+}(jQuery));
+/**
+ *  Norwegian translation for bootstrap-datepicker
+ **/
+
+;(function($){
+  $.fn.datepicker.dates['no'] = {
+    days: ['Søndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag'],
+    daysShort: ['Søn','Man','Tir','Ons','Tor','Fre','Lør'],
+    daysMin: ['Sø','Ma','Ti','On','To','Fr','Lø'],
+    months: ['Januar','Februar','Mars','April','Mai','Juni','Juli','August','September','Oktober','November','Desember'],
+    monthsShort: ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'],
+    today: 'I dag',
+    clear: 'Nullstill',
+    weekStart: 1,
+    format: 'dd.mm.yyyy'
+  };
+}(jQuery));
+/**
+ * Polish translation for bootstrap-datepicker
+ * Robert <rtpm@gazeta.pl>
+ */
+
+;(function($){
+        $.fn.datepicker.dates['pl'] = {
+                days: ["Niedziela", "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"],
+                daysShort: ["Nie", "Pn", "Wt", "Śr", "Czw", "Pt", "So", "Nie"],
+                daysMin: ["N", "Pn", "Wt", "Śr", "Cz", "Pt", "So", "N"],
+                months: ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"],
+                monthsShort: ["Sty", "Lu", "Mar", "Kw", "Maj", "Cze", "Lip", "Sie", "Wrz", "Pa", "Lis", "Gru"],
+                today: "Dzisiaj",
+                weekStart: 1
+        };
+}(jQuery));
+/**
+ * Brazilian translation for bootstrap-datepicker
+ * Cauan Cabral <cauan@radig.com.br>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['pt-BR'] = {
+		days: ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
+		daysShort: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
+		daysMin: ["Do", "Se", "Te", "Qu", "Qu", "Se", "Sa", "Do"],
+		months: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
+		monthsShort: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+		today: "Hoje",
+		clear: "Limpar"
+	};
+}(jQuery));
+/**
+ * Portuguese translation for bootstrap-datepicker
+ * Original code: Cauan Cabral <cauan@radig.com.br>
+ * Tiago Melo <tiago.blackcode@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['pt'] = {
+		days: ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
+		daysShort: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
+		daysMin: ["Do", "Se", "Te", "Qu", "Qu", "Se", "Sa", "Do"],
+		months: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
+		monthsShort: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+		today: "Hoje",
+		clear: "Limpar"
+	};
+}(jQuery));
+/**
+ * Romanian translation for bootstrap-datepicker
+ * Cristian Vasile <cristi.mie@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['ro'] = {
+		days: ["Duminică", "Luni", "Marţi", "Miercuri", "Joi", "Vineri", "Sâmbătă", "Duminică"],
+		daysShort: ["Dum", "Lun", "Mar", "Mie", "Joi", "Vin", "Sâm", "Dum"],
+		daysMin: ["Du", "Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"],
+		months: ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie", "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"],
+		monthsShort: ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun", "Iul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+		today: "Astăzi",
+		clear: "Șterge",
+		weekStart: 1
+	};
+}(jQuery));
+/**
+ * Serbian latin translation for bootstrap-datepicker
+ * Bojan Milosavlević <milboj@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['rs-latin'] = {
+		days: ["Nedelja","Ponedeljak", "Utorak", "Sreda", "Četvrtak", "Petak", "Subota", "Nedelja"],
+		daysShort: ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub", "Ned"],
+		daysMin: ["N", "Po", "U", "Sr", "Č", "Pe", "Su", "N"],
+		months: ["Januar", "Februar", "Mart", "April", "Maj", "Jun", "Jul", "Avgust", "Septembar", "Oktobar", "Novembar", "Decembar"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"],
+		today: "Danas"
+	};
+}(jQuery));
+/**
+ * Serbian cyrillic translation for bootstrap-datepicker
+ * Bojan Milosavlević <milboj@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['rs'] = {
+		days: ["Недеља","Понедељак", "Уторак", "Среда", "Четвртак", "Петак", "Субота", "Недеља"],
+		daysShort: ["Нед", "Пон", "Уто", "Сре", "Чет", "Пет", "Суб", "Нед"],
+		daysMin: ["Н", "По", "У", "Ср", "Ч", "Пе", "Су", "Н"],
+		months: ["Јануар", "Фебруар", "Март", "Април", "Мај", "Јун", "Јул", "Август", "Септембар", "Октобар", "Новембар", "Децембар"],
+		monthsShort: ["Јан", "Феб", "Мар", "Апр", "Мај", "Јун", "Јул", "Авг", "Сеп", "Окт", "Нов", "Дец"],
+		today: "Данас"
+	};
+}(jQuery));
+/**
+ * Russian translation for bootstrap-datepicker
+ * Victor Taranenko <darwin@snowdale.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['ru'] = {
+		days: ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"],
+		daysShort: ["Вск", "Пнд", "Втр", "Срд", "Чтв", "Птн", "Суб", "Вск"],
+		daysMin: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+		months: ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
+		monthsShort: ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
+		today: "Сегодня",
+		weekStart: 1
+	};
+}(jQuery));
+/**
+ * Slovak translation for bootstrap-datepicker
+ * Marek Lichtner <marek@licht.sk>
+ * Fixes by Michal Remiš <michal.remis@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates["sk"] = {
+		days: ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota", "Nedeľa"],
+		daysShort: ["Ned", "Pon", "Uto", "Str", "Štv", "Pia", "Sob", "Ned"],
+		daysMin: ["Ne", "Po", "Ut", "St", "Št", "Pia", "So", "Ne"],
+		months: ["Január", "Február", "Marec", "Apríl", "Máj", "Jún", "Júl", "August", "September", "Október", "November", "December"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Máj", "Jún", "Júl", "Aug", "Sep", "Okt", "Nov", "Dec"],
+		today: "Dnes"
+	};
+}(jQuery));
+/**
+ * Slovene translation for bootstrap-datepicker
+ * Gregor Rudolf <gregor.rudolf@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['sl'] = {
+		days: ["Nedelja", "Ponedeljek", "Torek", "Sreda", "Četrtek", "Petek", "Sobota", "Nedelja"],
+		daysShort: ["Ned", "Pon", "Tor", "Sre", "Čet", "Pet", "Sob", "Ned"],
+		daysMin: ["Ne", "Po", "To", "Sr", "Če", "Pe", "So", "Ne"],
+		months: ["Januar", "Februar", "Marec", "April", "Maj", "Junij", "Julij", "Avgust", "September", "Oktober", "November", "December"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"],
+		today: "Danes"
+	};
+}(jQuery));
+/**
+ * Albanian translation for bootstrap-datepicker
+ * Tomor Pupovci <http://www.github.com/ttomor>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['sq'] = {
+		days: ["E Diel", "E Hënë", "E martē", "E mërkurë", "E Enjte", "E Premte", "E Shtunë", "E Diel"],
+		daysShort: ["Die", "Hën", "Mar", "Mër", "Enj", "Pre", "Shtu", "Die"],
+		daysMin: ["Di", "Hë", "Ma", "Më", "En", "Pr", "Sht", "Di"],
+		months: ["Janar", "Shkurt", "Mars", "Prill", "Maj", "Qershor", "Korrik", "Gusht", "Shtator", "Tetor", "Nëntor", "Dhjetor"],
+		monthsShort: ["Jan", "Shk", "Mar", "Pri", "Maj", "Qer", "Korr", "Gu", "Sht", "Tet", "Nën", "Dhjet"],
+		today: "Sot"
+	};
+}(jQuery));
+
+/**
+ * Swedish translation for bootstrap-datepicker
+ * Patrik Ragnarsson <patrik@starkast.net>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['sv'] = {
+		days: ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"],
+		daysShort: ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"],
+		daysMin: ["Sö", "Må", "Ti", "On", "To", "Fr", "Lö", "Sö"],
+		months: ["Januari", "Februari", "Mars", "April", "Maj", "Juni", "Juli", "Augusti", "September", "Oktober", "November", "December"],
+		monthsShort: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
+		today: "Idag",
+		format: "yyyy-mm-dd",
+		weekStart: 1
+	};
+}(jQuery));
+/**
+ * Swahili translation for bootstrap-datepicker
+ * Edwin Mugendi <https://github.com/edwinmugendi>
+ * Source: http://scriptsource.org/cms/scripts/page.php?item_id=entry_detail&uid=xnfaqyzcku
+ */
+
+;(function($){
+    $.fn.datepicker.dates['sw'] = {
+        days: ["Jumapili", "Jumatatu", "Jumanne", "Jumatano", "Alhamisi", "Ijumaa", "Jumamosi", "Jumapili"],
+        daysShort: ["J2", "J3", "J4", "J5", "Alh", "Ij", "J1", "J2"],
+        daysMin: ["2", "3", "4", "5", "A", "I", "1", "2"],
+        months: ["Januari", "Februari", "Machi", "Aprili", "Mei", "Juni", "Julai", "Agosti", "Septemba", "Oktoba", "Novemba", "Desemba"],
+        monthsShort: ["Jan", "Feb", "Mac", "Apr", "Mei", "Jun", "Jul", "Ago", "Sep", "Okt", "Nov", "Des"],
+        today: "Leo"
+    };
+}(jQuery));
+/**
+ * Thai translation for bootstrap-datepicker
+ * Suchau Jiraprapot <seroz24@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['th'] = {
+		days: ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัส", "ศุกร์", "เสาร์", "อาทิตย์"],
+		daysShort: ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"],
+		daysMin: ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"],
+		months: ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"],
+		monthsShort: ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."],
+		today: "วันนี้"
+	};
+}(jQuery));
+/**
+ * Turkish translation for bootstrap-datepicker
+ * Serkan Algur <kaisercrazy_2@hotmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['tr'] = {
+		days: ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
+		daysShort: ["Pz", "Pzt", "Sal", "Çrş", "Prş", "Cu", "Cts", "Pz"],
+		daysMin: ["Pz", "Pzt", "Sa", "Çr", "Pr", "Cu", "Ct", "Pz"],
+		months: ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"],
+		monthsShort: ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"],
+		today: "Bugün",
+		format: "dd.mm.yyyy"
+	};
+}(jQuery));
+
+/**
+ * Ukrainian translation for bootstrap-datepicker
+ * Igor Polynets
+ */
+
+;(function($){
+	$.fn.datepicker.dates['ua'] = {
+		days: ["Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятница", "Субота", "Неділя"],
+		daysShort: ["Нед", "Пнд", "Втр", "Срд", "Чтв", "Птн", "Суб", "Нед"],
+		daysMin: ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"],
+		months: ["Cічень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"],
+		monthsShort: ["Січ", "Лют", "Бер", "Кві", "Тра", "Чер", "Лип", "Сер", "Вер", "Жов", "Лис", "Гру"],
+		today: "Сьогодні",
+		weekStart: 1
+	};
+}(jQuery));
+/**
+ * Ukrainian translation for bootstrap-datepicker
+ * Andrey Vityuk <andrey [dot] vityuk [at] gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['uk'] = {
+		days: ["Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"],
+		daysShort: ["Нед", "Пнд", "Втр", "Срд", "Чтв", "Птн", "Суб", "Нед"],
+		daysMin: ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"],
+		months: ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"],
+		monthsShort: ["Січ", "Лют", "Бер", "Кві", "Тра", "Чер", "Лип", "Сер", "Вер", "Жов", "Лис", "Гру"],
+		today: "Сьогодні"
+	};
+}(jQuery));
+/**
+ * Vietnamese translation for bootstrap-datepicker
+ * An Vo <https://github.com/anvoz/>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['vi'] = {
+		days: ["Chủ nhật", "Thứ hai", "Thứ ba", "Thứ tư", "Thứ năm", "Thứ sáu", "Thứ bảy", "Chủ nhật"],
+		daysShort: ["CN", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "CN"],
+		daysMin: ["CN", "T2", "T3", "T4", "T5", "T6", "T7", "CN"],
+		months: ["Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6", "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12"],
+		monthsShort: ["Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12"],
+		today: "Hôm nay",
+		clear: "Xóa",
+		format: "dd/mm/yyyy"
+	};
+}(jQuery));
+/**
+ * Simplified Chinese translation for bootstrap-datepicker
+ * Yuan Cheung <advanimal@gmail.com>
+ */
+
+;(function($){
+	$.fn.datepicker.dates['zh-CN'] = {
+		days: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
+		daysShort: ["周日", "周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+		daysMin:  ["日", "一", "二", "三", "四", "五", "六", "日"],
+		months: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
+		monthsShort: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
+		today: "今日",
+		format: "yyyy年mm月dd日",
+		weekStart: 1
+	};
+}(jQuery));
+/**
+ * Traditional Chinese translation for bootstrap-datepicker
+ * Rung-Sheng Jang <daniel@i-trend.co.cc>
+ * FrankWu  <frankwu100@gmail.com> Fix more appropriate use of Traditional Chinese habit
+ */
+
+;(function($){
+	$.fn.datepicker.dates['zh-TW'] = {
+		days: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
+		daysShort: ["週日", "週一", "週二", "週三", "週四", "週五", "週六", "週日"],
+		daysMin:  ["日", "一", "二", "三", "四", "五", "六", "日"],
+		months: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
+		monthsShort: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
+		today: "今天",
+		format: "yyyy年mm月dd日",
+		weekStart: 1
+	};
+}(jQuery));
+
+
+/**
+ * sifter.js
+ * Copyright (c) 2013 Brian Reavis & contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License. You may obtain a copy of the License at:
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ * ANY KIND, either express or implied. See the License for the specific language
+ * governing permissions and limitations under the License.
+ *
+ * @author Brian Reavis <brian@thirdroute.com>
+ */
+
+
+(function(root, factory) {
+	if (typeof define === 'function' && define.amd) {
+		define('sifter', factory);
+	} else if (typeof exports === 'object') {
+		module.exports = factory();
+	} else {
+		root.Sifter = factory();
+	}
+}(this, function() {
+
+	/**
+	 * Textually searches arrays and hashes of objects
+	 * by property (or multiple properties). Designed
+	 * specifically for autocomplete.
+	 *
+	 * @constructor
+	 * @param {array|object} items
+	 * @param {object} items
+	 */
+	var Sifter = function(items, settings) {
+		this.items = items;
+		this.settings = settings || {diacritics: true};
+	};
+
+	/**
+	 * Splits a search string into an array of individual
+	 * regexps to be used to match results.
+	 *
+	 * @param {string} query
+	 * @returns {array}
+	 */
+	Sifter.prototype.tokenize = function(query) {
+		query = trim(String(query || '').toLowerCase());
+		if (!query || !query.length) return [];
+
+		var i, n, regex, letter;
+		var tokens = [];
+		var words = query.split(/ +/);
+
+		for (i = 0, n = words.length; i < n; i++) {
+			regex = escape_regex(words[i]);
+			if (this.settings.diacritics) {
+				for (letter in DIACRITICS) {
+					if (DIACRITICS.hasOwnProperty(letter)) {
+						regex = regex.replace(new RegExp(letter, 'g'), DIACRITICS[letter]);
+					}
+				}
+			}
+			tokens.push({
+				string : words[i],
+				regex  : new RegExp(regex, 'i')
+			});
+		}
+
+		return tokens;
+	};
+
+	/**
+	 * Iterates over arrays and hashes.
+	 *
+	 * ```
+	 * this.iterator(this.items, function(item, id) {
+	 *    // invoked for each item
+	 * });
+	 * ```
+	 *
+	 * @param {array|object} object
+	 */
+	Sifter.prototype.iterator = function(object, callback) {
+		var iterator;
+		if (is_array(object)) {
+			iterator = Array.prototype.forEach || function(callback) {
+				for (var i = 0, n = this.length; i < n; i++) {
+					callback(this[i], i, this);
+				}
+			};
+		} else {
+			iterator = function(callback) {
+				for (var key in this) {
+					if (this.hasOwnProperty(key)) {
+						callback(this[key], key, this);
+					}
+				}
+			};
+		}
+
+		iterator.apply(object, [callback]);
+	};
+
+	/**
+	 * Returns a function to be used to score individual results.
+	 *
+	 * Good matches will have a higher score than poor matches.
+	 * If an item is not a match, 0 will be returned by the function.
+	 *
+	 * @param {object|string} search
+	 * @param {object} options (optional)
+	 * @returns {function}
+	 */
+	Sifter.prototype.getScoreFunction = function(search, options) {
+		var self, fields, tokens, token_count;
+
+		self        = this;
+		search      = self.prepareSearch(search, options);
+		tokens      = search.tokens;
+		fields      = search.options.fields;
+		token_count = tokens.length;
+
+		/**
+		 * Calculates how close of a match the
+		 * given value is against a search token.
+		 *
+		 * @param {mixed} value
+		 * @param {object} token
+		 * @return {number}
+		 */
+		var scoreValue = function(value, token) {
+			var score, pos;
+
+			if (!value) return 0;
+			value = String(value || '');
+			pos = value.search(token.regex);
+			if (pos === -1) return 0;
+			score = token.string.length / value.length;
+			if (pos === 0) score += 0.5;
+			return score;
+		};
+
+		/**
+		 * Calculates the score of an object
+		 * against the search query.
+		 *
+		 * @param {object} token
+		 * @param {object} data
+		 * @return {number}
+		 */
+		var scoreObject = (function() {
+			var field_count = fields.length;
+			if (!field_count) {
+				return function() { return 0; };
+			}
+			if (field_count === 1) {
+				return function(token, data) {
+					return scoreValue(data[fields[0]], token);
+				};
+			}
+			return function(token, data) {
+				for (var i = 0, sum = 0; i < field_count; i++) {
+					sum += scoreValue(data[fields[i]], token);
+				}
+				return sum / field_count;
+			};
+		})();
+
+		if (!token_count) {
+			return function() { return 0; };
+		}
+		if (token_count === 1) {
+			return function(data) {
+				return scoreObject(tokens[0], data);
+			};
+		}
+
+		if (search.options.conjunction === 'and') {
+			return function(data) {
+				var score;
+				for (var i = 0, sum = 0; i < token_count; i++) {
+					score = scoreObject(tokens[i], data);
+					if (score <= 0) return 0;
+					sum += score;
+				}
+				return sum / token_count;
+			};
+		} else {
+			return function(data) {
+				for (var i = 0, sum = 0; i < token_count; i++) {
+					sum += scoreObject(tokens[i], data);
+				}
+				return sum / token_count;
+			};
+		}
+	};
+
+	/**
+	 * Returns a function that can be used to compare two
+	 * results, for sorting purposes. If no sorting should
+	 * be performed, `null` will be returned.
+	 *
+	 * @param {string|object} search
+	 * @param {object} options
+	 * @return function(a,b)
+	 */
+	Sifter.prototype.getSortFunction = function(search, options) {
+		var i, n, self, field, fields, fields_count, multiplier, multipliers, get_field, implicit_score, sort;
+
+		self   = this;
+		search = self.prepareSearch(search, options);
+		sort   = (!search.query && options.sort_empty) || options.sort;
+
+		/**
+		 * Fetches the specified sort field value
+		 * from a search result item.
+		 *
+		 * @param  {string} name
+		 * @param  {object} result
+		 * @return {mixed}
+		 */
+		get_field  = function(name, result) {
+			if (name === '$score') return result.score;
+			return self.items[result.id][name];
+		};
+
+		// parse options
+		fields = [];
+		if (sort) {
+			for (i = 0, n = sort.length; i < n; i++) {
+				if (search.query || sort[i].field !== '$score') {
+					fields.push(sort[i]);
+				}
+			}
+		}
+
+		// the "$score" field is implied to be the primary
+		// sort field, unless it's manually specified
+		if (search.query) {
+			implicit_score = true;
+			for (i = 0, n = fields.length; i < n; i++) {
+				if (fields[i].field === '$score') {
+					implicit_score = false;
+					break;
+				}
+			}
+			if (implicit_score) {
+				fields.unshift({field: '$score', direction: 'desc'});
+			}
+		} else {
+			for (i = 0, n = fields.length; i < n; i++) {
+				if (fields[i].field === '$score') {
+					fields.splice(i, 1);
+					break;
+				}
+			}
+		}
+
+		multipliers = [];
+		for (i = 0, n = fields.length; i < n; i++) {
+			multipliers.push(fields[i].direction === 'desc' ? -1 : 1);
+		}
+
+		// build function
+		fields_count = fields.length;
+		if (!fields_count) {
+			return null;
+		} else if (fields_count === 1) {
+			field = fields[0].field;
+			multiplier = multipliers[0];
+			return function(a, b) {
+				return multiplier * cmp(
+					get_field(field, a),
+					get_field(field, b)
+				);
+			};
+		} else {
+			return function(a, b) {
+				var i, result, a_value, b_value, field;
+				for (i = 0; i < fields_count; i++) {
+					field = fields[i].field;
+					result = multipliers[i] * cmp(
+						get_field(field, a),
+						get_field(field, b)
+					);
+					if (result) return result;
+				}
+				return 0;
+			};
+		}
+	};
+
+	/**
+	 * Parses a search query and returns an object
+	 * with tokens and fields ready to be populated
+	 * with results.
+	 *
+	 * @param {string} query
+	 * @param {object} options
+	 * @returns {object}
+	 */
+	Sifter.prototype.prepareSearch = function(query, options) {
+		if (typeof query === 'object') return query;
+
+		options = extend({}, options);
+
+		var option_fields     = options.fields;
+		var option_sort       = options.sort;
+		var option_sort_empty = options.sort_empty;
+
+		if (option_fields && !is_array(option_fields)) options.fields = [option_fields];
+		if (option_sort && !is_array(option_sort)) options.sort = [option_sort];
+		if (option_sort_empty && !is_array(option_sort_empty)) options.sort_empty = [option_sort_empty];
+
+		return {
+			options : options,
+			query   : String(query || '').toLowerCase(),
+			tokens  : this.tokenize(query),
+			total   : 0,
+			items   : []
+		};
+	};
+
+	/**
+	 * Searches through all items and returns a sorted array of matches.
+	 *
+	 * The `options` parameter can contain:
+	 *
+	 *   - fields {string|array}
+	 *   - sort {array}
+	 *   - score {function}
+	 *   - filter {bool}
+	 *   - limit {integer}
+	 *
+	 * Returns an object containing:
+	 *
+	 *   - options {object}
+	 *   - query {string}
+	 *   - tokens {array}
+	 *   - total {int}
+	 *   - items {array}
+	 *
+	 * @param {string} query
+	 * @param {object} options
+	 * @returns {object}
+	 */
+	Sifter.prototype.search = function(query, options) {
+		var self = this, value, score, search, calculateScore;
+		var fn_sort;
+		var fn_score;
+
+		search  = this.prepareSearch(query, options);
+		options = search.options;
+		query   = search.query;
+
+		// generate result scoring function
+		fn_score = options.score || self.getScoreFunction(search);
+
+		// perform search and sort
+		if (query.length) {
+			self.iterator(self.items, function(item, id) {
+				score = fn_score(item);
+				if (options.filter === false || score > 0) {
+					search.items.push({'score': score, 'id': id});
+				}
+			});
+		} else {
+			self.iterator(self.items, function(item, id) {
+				search.items.push({'score': 1, 'id': id});
+			});
+		}
+
+		fn_sort = self.getSortFunction(search, options);
+		if (fn_sort) search.items.sort(fn_sort);
+
+		// apply limits
+		search.total = search.items.length;
+		if (typeof options.limit === 'number') {
+			search.items = search.items.slice(0, options.limit);
+		}
+
+		return search;
+	};
+
+	// utilities
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+	var cmp = function(a, b) {
+		if (typeof a === 'number' && typeof b === 'number') {
+			return a > b ? 1 : (a < b ? -1 : 0);
+		}
+		a = String(a || '').toLowerCase();
+		b = String(b || '').toLowerCase();
+		if (a > b) return 1;
+		if (b > a) return -1;
+		return 0;
+	};
+
+	var extend = function(a, b) {
+		var i, n, k, object;
+		for (i = 1, n = arguments.length; i < n; i++) {
+			object = arguments[i];
+			if (!object) continue;
+			for (k in object) {
+				if (object.hasOwnProperty(k)) {
+					a[k] = object[k];
+				}
+			}
+		}
+		return a;
+	};
+
+	var trim = function(str) {
+		return (str + '').replace(/^\s+|\s+$|/g, '');
+	};
+
+	var escape_regex = function(str) {
+		return (str + '').replace(/([.?*+^$[\]\\(){}|-])/g, '\\$1');
+	};
+
+	var is_array = Array.isArray || ($ && $.isArray) || function(object) {
+		return Object.prototype.toString.call(object) === '[object Array]';
+	};
+
+	var DIACRITICS = {
+		'a': '[aÀÁÂÃÄÅàáâãäåĀā]',
+		'c': '[cÇçćĆčČ]',
+		'd': '[dđĐďĎ]',
+		'e': '[eÈÉÊËèéêëěĚĒē]',
+		'i': '[iÌÍÎÏìíîïĪī]',
+		'n': '[nÑñňŇ]',
+		'o': '[oÒÓÔÕÕÖØòóôõöøŌō]',
+		'r': '[rřŘ]',
+		's': '[sŠš]',
+		't': '[tťŤ]',
+		'u': '[uÙÚÛÜùúûüůŮŪū]',
+		'y': '[yŸÿýÝ]',
+		'z': '[zŽž]'
+	};
+
+	// export
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+	return Sifter;
+}));
+
+
+
+/**
+ * microplugin.js
+ * Copyright (c) 2013 Brian Reavis & contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License. You may obtain a copy of the License at:
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ * ANY KIND, either express or implied. See the License for the specific language
+ * governing permissions and limitations under the License.
+ *
+ * @author Brian Reavis <brian@thirdroute.com>
+ */
+
+(function(root, factory) {
+	if (typeof define === 'function' && define.amd) {
+		define('microplugin', factory);
+	} else if (typeof exports === 'object') {
+		module.exports = factory();
+	} else {
+		root.MicroPlugin = factory();
+	}
+}(this, function() {
+	var MicroPlugin = {};
+
+	MicroPlugin.mixin = function(Interface) {
+		Interface.plugins = {};
+
+		/**
+		 * Initializes the listed plugins (with options).
+		 * Acceptable formats:
+		 *
+		 * List (without options):
+		 *   ['a', 'b', 'c']
+		 *
+		 * List (with options):
+		 *   [{'name': 'a', options: {}}, {'name': 'b', options: {}}]
+		 *
+		 * Hash (with options):
+		 *   {'a': { ... }, 'b': { ... }, 'c': { ... }}
+		 *
+		 * @param {mixed} plugins
+		 */
+		Interface.prototype.initializePlugins = function(plugins) {
+			var i, n, key;
+			var self  = this;
+			var queue = [];
+
+			self.plugins = {
+				names     : [],
+				settings  : {},
+				requested : {},
+				loaded    : {}
+			};
+
+			if (utils.isArray(plugins)) {
+				for (i = 0, n = plugins.length; i < n; i++) {
+					if (typeof plugins[i] === 'string') {
+						queue.push(plugins[i]);
+					} else {
+						self.plugins.settings[plugins[i].name] = plugins[i].options;
+						queue.push(plugins[i].name);
+					}
+				}
+			} else if (plugins) {
+				for (key in plugins) {
+					if (plugins.hasOwnProperty(key)) {
+						self.plugins.settings[key] = plugins[key];
+						queue.push(key);
+					}
+				}
+			}
+
+			while (queue.length) {
+				self.require(queue.shift());
+			}
+		};
+
+		Interface.prototype.loadPlugin = function(name) {
+			var self    = this;
+			var plugins = self.plugins;
+			var plugin  = Interface.plugins[name];
+
+			if (!Interface.plugins.hasOwnProperty(name)) {
+				throw new Error('Unable to find "' +  name + '" plugin');
+			}
+
+			plugins.requested[name] = true;
+			plugins.loaded[name] = plugin.fn.apply(self, [self.plugins.settings[name] || {}]);
+			plugins.names.push(name);
+		};
+
+		/**
+		 * Initializes a plugin.
+		 *
+		 * @param {string} name
+		 */
+		Interface.prototype.require = function(name) {
+			var self = this;
+			var plugins = self.plugins;
+
+			if (!self.plugins.loaded.hasOwnProperty(name)) {
+				if (plugins.requested[name]) {
+					throw new Error('Plugin has circular dependency ("' + name + '")');
+				}
+				self.loadPlugin(name);
+			}
+
+			return plugins.loaded[name];
+		};
+
+		/**
+		 * Registers a plugin.
+		 *
+		 * @param {string} name
+		 * @param {function} fn
+		 */
+		Interface.define = function(name, fn) {
+			Interface.plugins[name] = {
+				'name' : name,
+				'fn'   : fn
+			};
+		};
+	};
+
+	var utils = {
+		isArray: Array.isArray || function(vArg) {
+			return Object.prototype.toString.call(vArg) === '[object Array]';
+		}
+	};
+
+	return MicroPlugin;
+}));
+
+/**
+ * selectize.js (v0.11.2)
+ * Copyright (c) 2013 Brian Reavis & contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License. You may obtain a copy of the License at:
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ * ANY KIND, either express or implied. See the License for the specific language
+ * governing permissions and limitations under the License.
+ *
+ * @author Brian Reavis <brian@thirdroute.com>
+ */
+
+/*jshint curly:false */
+/*jshint browser:true */
+
+(function(root, factory) {
+	if (typeof define === 'function' && define.amd) {
+		define('selectize', ['jquery','sifter','microplugin'], factory);
+	} else if (typeof exports === 'object') {
+		module.exports = factory(require('jquery'), require('sifter'), require('microplugin'));
+	} else {
+		root.Selectize = factory(root.jQuery, root.Sifter, root.MicroPlugin);
+	}
+}(this, function($, Sifter, MicroPlugin) {
+	'use strict';
+
+	var highlight = function($element, pattern) {
+		if (typeof pattern === 'string' && !pattern.length) return;
+		var regex = (typeof pattern === 'string') ? new RegExp(pattern, 'i') : pattern;
+	
+		var highlight = function(node) {
+			var skip = 0;
+			if (node.nodeType === 3) {
+				var pos = node.data.search(regex);
+				if (pos >= 0 && node.data.length > 0) {
+					var match = node.data.match(regex);
+					var spannode = document.createElement('span');
+					spannode.className = 'highlight';
+					var middlebit = node.splitText(pos);
+					var endbit = middlebit.splitText(match[0].length);
+					var middleclone = middlebit.cloneNode(true);
+					spannode.appendChild(middleclone);
+					middlebit.parentNode.replaceChild(spannode, middlebit);
+					skip = 1;
+				}
+			} else if (node.nodeType === 1 && node.childNodes && !/(script|style)/i.test(node.tagName)) {
+				for (var i = 0; i < node.childNodes.length; ++i) {
+					i += highlight(node.childNodes[i]);
+				}
+			}
+			return skip;
+		};
+	
+		return $element.each(function() {
+			highlight(this);
+		});
+	};
+	
+	var MicroEvent = function() {};
+	MicroEvent.prototype = {
+		on: function(event, fct){
+			this._events = this._events || {};
+			this._events[event] = this._events[event] || [];
+			this._events[event].push(fct);
+		},
+		off: function(event, fct){
+			var n = arguments.length;
+			if (n === 0) return delete this._events;
+			if (n === 1) return delete this._events[event];
+	
+			this._events = this._events || {};
+			if (event in this._events === false) return;
+			this._events[event].splice(this._events[event].indexOf(fct), 1);
+		},
+		trigger: function(event /* , args... */){
+			this._events = this._events || {};
+			if (event in this._events === false) return;
+			for (var i = 0; i < this._events[event].length; i++){
+				this._events[event][i].apply(this, Array.prototype.slice.call(arguments, 1));
+			}
+		}
+	};
+	
+	/**
+	 * Mixin will delegate all MicroEvent.js function in the destination object.
+	 *
+	 * - MicroEvent.mixin(Foobar) will make Foobar able to use MicroEvent
+	 *
+	 * @param {object} the object which will support MicroEvent
+	 */
+	MicroEvent.mixin = function(destObject){
+		var props = ['on', 'off', 'trigger'];
+		for (var i = 0; i < props.length; i++){
+			destObject.prototype[props[i]] = MicroEvent.prototype[props[i]];
+		}
+	};
+	
+	var IS_MAC        = /Mac/.test(navigator.userAgent);
+	
+	var KEY_A         = 65;
+	var KEY_COMMA     = 188;
+	var KEY_RETURN    = 13;
+	var KEY_ESC       = 27;
+	var KEY_LEFT      = 37;
+	var KEY_UP        = 38;
+	var KEY_P         = 80;
+	var KEY_RIGHT     = 39;
+	var KEY_DOWN      = 40;
+	var KEY_N         = 78;
+	var KEY_BACKSPACE = 8;
+	var KEY_DELETE    = 46;
+	var KEY_SHIFT     = 16;
+	var KEY_CMD       = IS_MAC ? 91 : 17;
+	var KEY_CTRL      = IS_MAC ? 18 : 17;
+	var KEY_TAB       = 9;
+	
+	var TAG_SELECT    = 1;
+	var TAG_INPUT     = 2;
+	
+	
+	var isset = function(object) {
+		return typeof object !== 'undefined';
+	};
+	
+	/**
+	 * Converts a scalar to its best string representation
+	 * for hash keys and HTML attribute values.
+	 *
+	 * Transformations:
+	 *   'str'     -> 'str'
+	 *   null      -> ''
+	 *   undefined -> ''
+	 *   true      -> '1'
+	 *   false     -> '0'
+	 *   0         -> '0'
+	 *   1         -> '1'
+	 *
+	 * @param {string} value
+	 * @returns {string|null}
+	 */
+	var hash_key = function(value) {
+		if (typeof value === 'undefined' || value === null) return null;
+		if (typeof value === 'boolean') return value ? '1' : '0';
+		return value + '';
+	};
+	
+	/**
+	 * Escapes a string for use within HTML.
+	 *
+	 * @param {string} str
+	 * @returns {string}
+	 */
+	var escape_html = function(str) {
+		return (str + '')
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;');
+	};
+	
+	/**
+	 * Escapes "$" characters in replacement strings.
+	 *
+	 * @param {string} str
+	 * @returns {string}
+	 */
+	var escape_replace = function(str) {
+		return (str + '').replace(/\$/g, '$$$$');
+	};
+	
+	var hook = {};
+	
+	/**
+	 * Wraps `method` on `self` so that `fn`
+	 * is invoked before the original method.
+	 *
+	 * @param {object} self
+	 * @param {string} method
+	 * @param {function} fn
+	 */
+	hook.before = function(self, method, fn) {
+		var original = self[method];
+		self[method] = function() {
+			fn.apply(self, arguments);
+			return original.apply(self, arguments);
+		};
+	};
+	
+	/**
+	 * Wraps `method` on `self` so that `fn`
+	 * is invoked after the original method.
+	 *
+	 * @param {object} self
+	 * @param {string} method
+	 * @param {function} fn
+	 */
+	hook.after = function(self, method, fn) {
+		var original = self[method];
+		self[method] = function() {
+			var result = original.apply(self, arguments);
+			fn.apply(self, arguments);
+			return result;
+		};
+	};
+	
+	/**
+	 * Builds a hash table out of an array of
+	 * objects, using the specified `key` within
+	 * each object.
+	 *
+	 * @param {string} key
+	 * @param {mixed} objects
+	 */
+	var build_hash_table = function(key, objects) {
+		if (!$.isArray(objects)) return objects;
+		var i, n, table = {};
+		for (i = 0, n = objects.length; i < n; i++) {
+			if (objects[i].hasOwnProperty(key)) {
+				table[objects[i][key]] = objects[i];
+			}
+		}
+		return table;
+	};
+	
+	/**
+	 * Wraps `fn` so that it can only be invoked once.
+	 *
+	 * @param {function} fn
+	 * @returns {function}
+	 */
+	var once = function(fn) {
+		var called = false;
+		return function() {
+			if (called) return;
+			called = true;
+			fn.apply(this, arguments);
+		};
+	};
+	
+	/**
+	 * Wraps `fn` so that it can only be called once
+	 * every `delay` milliseconds (invoked on the falling edge).
+	 *
+	 * @param {function} fn
+	 * @param {int} delay
+	 * @returns {function}
+	 */
+	var debounce = function(fn, delay) {
+		var timeout;
+		return function() {
+			var self = this;
+			var args = arguments;
+			window.clearTimeout(timeout);
+			timeout = window.setTimeout(function() {
+				fn.apply(self, args);
+			}, delay);
+		};
+	};
+	
+	/**
+	 * Debounce all fired events types listed in `types`
+	 * while executing the provided `fn`.
+	 *
+	 * @param {object} self
+	 * @param {array} types
+	 * @param {function} fn
+	 */
+	var debounce_events = function(self, types, fn) {
+		var type;
+		var trigger = self.trigger;
+		var event_args = {};
+	
+		// override trigger method
+		self.trigger = function() {
+			var type = arguments[0];
+			if (types.indexOf(type) !== -1) {
+				event_args[type] = arguments;
+			} else {
+				return trigger.apply(self, arguments);
+			}
+		};
+	
+		// invoke provided function
+		fn.apply(self, []);
+		self.trigger = trigger;
+	
+		// trigger queued events
+		for (type in event_args) {
+			if (event_args.hasOwnProperty(type)) {
+				trigger.apply(self, event_args[type]);
+			}
+		}
+	};
+	
+	/**
+	 * A workaround for http://bugs.jquery.com/ticket/6696
+	 *
+	 * @param {object} $parent - Parent element to listen on.
+	 * @param {string} event - Event name.
+	 * @param {string} selector - Descendant selector to filter by.
+	 * @param {function} fn - Event handler.
+	 */
+	var watchChildEvent = function($parent, event, selector, fn) {
+		$parent.on(event, selector, function(e) {
+			var child = e.target;
+			while (child && child.parentNode !== $parent[0]) {
+				child = child.parentNode;
+			}
+			e.currentTarget = child;
+			return fn.apply(this, [e]);
+		});
+	};
+	
+	/**
+	 * Determines the current selection within a text input control.
+	 * Returns an object containing:
+	 *   - start
+	 *   - length
+	 *
+	 * @param {object} input
+	 * @returns {object}
+	 */
+	var getSelection = function(input) {
+		var result = {};
+		if ('selectionStart' in input) {
+			result.start = input.selectionStart;
+			result.length = input.selectionEnd - result.start;
+		} else if (document.selection) {
+			input.focus();
+			var sel = document.selection.createRange();
+			var selLen = document.selection.createRange().text.length;
+			sel.moveStart('character', -input.value.length);
+			result.start = sel.text.length - selLen;
+			result.length = selLen;
+		}
+		return result;
+	};
+	
+	/**
+	 * Copies CSS properties from one element to another.
+	 *
+	 * @param {object} $from
+	 * @param {object} $to
+	 * @param {array} properties
+	 */
+	var transferStyles = function($from, $to, properties) {
+		var i, n, styles = {};
+		if (properties) {
+			for (i = 0, n = properties.length; i < n; i++) {
+				styles[properties[i]] = $from.css(properties[i]);
+			}
+		} else {
+			styles = $from.css();
+		}
+		$to.css(styles);
+	};
+	
+	/**
+	 * Measures the width of a string within a
+	 * parent element (in pixels).
+	 *
+	 * @param {string} str
+	 * @param {object} $parent
+	 * @returns {int}
+	 */
+	var measureString = function(str, $parent) {
+		if (!str) {
+			return 0;
+		}
+	
+		var $test = $('<test>').css({
+			position: 'absolute',
+			top: -99999,
+			left: -99999,
+			width: 'auto',
+			padding: 0,
+			whiteSpace: 'pre'
+		}).text(str).appendTo('body');
+	
+		transferStyles($parent, $test, [
+			'letterSpacing',
+			'fontSize',
+			'fontFamily',
+			'fontWeight',
+			'textTransform'
+		]);
+	
+		var width = $test.width();
+		$test.remove();
+	
+		return width;
+	};
+	
+	/**
+	 * Sets up an input to grow horizontally as the user
+	 * types. If the value is changed manually, you can
+	 * trigger the "update" handler to resize:
+	 *
+	 * $input.trigger('update');
+	 *
+	 * @param {object} $input
+	 */
+	var autoGrow = function($input) {
+		var currentWidth = null;
+	
+		var update = function(e, options) {
+			var value, keyCode, printable, placeholder, width;
+			var shift, character, selection;
+			e = e || window.event || {};
+			options = options || {};
+	
+			if (e.metaKey || e.altKey) return;
+			if (!options.force && $input.data('grow') === false) return;
+	
+			value = $input.val();
+			if (e.type && e.type.toLowerCase() === 'keydown') {
+				keyCode = e.keyCode;
+				printable = (
+					(keyCode >= 97 && keyCode <= 122) || // a-z
+					(keyCode >= 65 && keyCode <= 90)  || // A-Z
+					(keyCode >= 48 && keyCode <= 57)  || // 0-9
+					keyCode === 32 // space
+				);
+	
+				if (keyCode === KEY_DELETE || keyCode === KEY_BACKSPACE) {
+					selection = getSelection($input[0]);
+					if (selection.length) {
+						value = value.substring(0, selection.start) + value.substring(selection.start + selection.length);
+					} else if (keyCode === KEY_BACKSPACE && selection.start) {
+						value = value.substring(0, selection.start - 1) + value.substring(selection.start + 1);
+					} else if (keyCode === KEY_DELETE && typeof selection.start !== 'undefined') {
+						value = value.substring(0, selection.start) + value.substring(selection.start + 1);
+					}
+				} else if (printable) {
+					shift = e.shiftKey;
+					character = String.fromCharCode(e.keyCode);
+					if (shift) character = character.toUpperCase();
+					else character = character.toLowerCase();
+					value += character;
+				}
+			}
+	
+			placeholder = $input.attr('placeholder');
+			if (!value && placeholder) {
+				value = placeholder;
+			}
+	
+			width = measureString(value, $input) + 4;
+			if (width !== currentWidth) {
+				currentWidth = width;
+				$input.width(width);
+				$input.triggerHandler('resize');
+			}
+		};
+	
+		$input.on('keydown keyup update blur', update);
+		update();
+	};
+	
+	var Selectize = function($input, settings) {
+		var key, i, n, dir, input, self = this;
+		input = $input[0];
+		input.selectize = self;
+	
+		// detect rtl environment
+		var computedStyle = window.getComputedStyle && window.getComputedStyle(input, null);
+		dir = computedStyle ? computedStyle.getPropertyValue('direction') : input.currentStyle && input.currentStyle.direction;
+		dir = dir || $input.parents('[dir]:first').attr('dir') || '';
+	
+		// setup default state
+		$.extend(self, {
+			settings         : settings,
+			$input           : $input,
+			tagType          : input.tagName.toLowerCase() === 'select' ? TAG_SELECT : TAG_INPUT,
+			rtl              : /rtl/i.test(dir),
+	
+			eventNS          : '.selectize' + (++Selectize.count),
+			highlightedValue : null,
+			isOpen           : false,
+			isDisabled       : false,
+			isRequired       : $input.is('[required]'),
+			isInvalid        : false,
+			isLocked         : false,
+			isFocused        : false,
+			isInputHidden    : false,
+			isSetup          : false,
+			isShiftDown      : false,
+			isCmdDown        : false,
+			isCtrlDown       : false,
+			ignoreFocus      : false,
+			ignoreBlur       : false,
+			ignoreHover      : false,
+			hasOptions       : false,
+			currentResults   : null,
+			lastValue        : '',
+			caretPos         : 0,
+			loading          : 0,
+			loadedSearches   : {},
+	
+			$activeOption    : null,
+			$activeItems     : [],
+	
+			optgroups        : {},
+			options          : {},
+			userOptions      : {},
+			items            : [],
+			renderCache      : {},
+			onSearchChange   : settings.loadThrottle === null ? self.onSearchChange : debounce(self.onSearchChange, settings.loadThrottle)
+		});
+	
+		// search system
+		self.sifter = new Sifter(this.options, {diacritics: settings.diacritics});
+	
+		// build options table
+		$.extend(self.options, build_hash_table(settings.valueField, settings.options));
+		delete self.settings.options;
+	
+		// build optgroup table
+		$.extend(self.optgroups, build_hash_table(settings.optgroupValueField, settings.optgroups));
+		delete self.settings.optgroups;
+	
+		// option-dependent defaults
+		self.settings.mode = self.settings.mode || (self.settings.maxItems === 1 ? 'single' : 'multi');
+		if (typeof self.settings.hideSelected !== 'boolean') {
+			self.settings.hideSelected = self.settings.mode === 'multi';
+		}
+	
+		self.initializePlugins(self.settings.plugins);
+		self.setupCallbacks();
+		self.setupTemplates();
+		self.setup();
+	};
+	
+	// mixins
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+	
+	MicroEvent.mixin(Selectize);
+	MicroPlugin.mixin(Selectize);
+	
+	// methods
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+	
+	$.extend(Selectize.prototype, {
+	
+		/**
+		 * Creates all elements and sets up event bindings.
+		 */
+		setup: function() {
+			var self      = this;
+			var settings  = self.settings;
+			var eventNS   = self.eventNS;
+			var $window   = $(window);
+			var $document = $(document);
+			var $input    = self.$input;
+	
+			var $wrapper;
+			var $control;
+			var $control_input;
+			var $dropdown;
+			var $dropdown_content;
+			var $dropdown_parent;
+			var inputMode;
+			var timeout_blur;
+			var timeout_focus;
+			var tab_index;
+			var classes;
+			var classes_plugins;
+	
+			inputMode         = self.settings.mode;
+			tab_index         = $input.attr('tabindex') || '';
+			classes           = $input.attr('class') || '';
+	
+			$wrapper          = $('<div>').addClass(settings.wrapperClass).addClass(classes).addClass(inputMode);
+			$control          = $('<div>').addClass(settings.inputClass).addClass('items').appendTo($wrapper);
+			$control_input    = $('<input type="text" autocomplete="off" />').appendTo($control).attr('tabindex', tab_index);
+			$dropdown_parent  = $(settings.dropdownParent || $wrapper);
+			$dropdown         = $('<div>').addClass(settings.dropdownClass).addClass(inputMode).hide().appendTo($dropdown_parent);
+			$dropdown_content = $('<div>').addClass(settings.dropdownContentClass).appendTo($dropdown);
+	
+			if(self.settings.copyClassesToDropdown) {
+				$dropdown.addClass(classes);
+			}
+	
+			$wrapper.css({
+				width: $input[0].style.width
+			});
+	
+			if (self.plugins.names.length) {
+				classes_plugins = 'plugin-' + self.plugins.names.join(' plugin-');
+				$wrapper.addClass(classes_plugins);
+				$dropdown.addClass(classes_plugins);
+			}
+	
+			if ((settings.maxItems === null || settings.maxItems > 1) && self.tagType === TAG_SELECT) {
+				$input.attr('multiple', 'multiple');
+			}
+	
+			if (self.settings.placeholder) {
+				$control_input.attr('placeholder', settings.placeholder);
+			}
+	
+			if ($input.attr('autocorrect')) {
+				$control_input.attr('autocorrect', $input.attr('autocorrect'));
+			}
+	
+			if ($input.attr('autocapitalize')) {
+				$control_input.attr('autocapitalize', $input.attr('autocapitalize'));
+			}
+	
+			self.$wrapper          = $wrapper;
+			self.$control          = $control;
+			self.$control_input    = $control_input;
+			self.$dropdown         = $dropdown;
+			self.$dropdown_content = $dropdown_content;
+	
+			$dropdown.on('mouseenter', '[data-selectable]', function() { return self.onOptionHover.apply(self, arguments); });
+			$dropdown.on('mousedown', '[data-selectable]', function() { return self.onOptionSelect.apply(self, arguments); });
+			watchChildEvent($control, 'mousedown', '*:not(input)', function() { return self.onItemSelect.apply(self, arguments); });
+			autoGrow($control_input);
+	
+			$control.on({
+				mousedown : function() { return self.onMouseDown.apply(self, arguments); },
+				click     : function() { return self.onClick.apply(self, arguments); }
+			});
+	
+			$control_input.on({
+				mousedown : function(e) { e.stopPropagation(); },
+				keydown   : function() { return self.onKeyDown.apply(self, arguments); },
+				keyup     : function() { return self.onKeyUp.apply(self, arguments); },
+				keypress  : function() { return self.onKeyPress.apply(self, arguments); },
+				resize    : function() { self.positionDropdown.apply(self, []); },
+				blur      : function() { return self.onBlur.apply(self, arguments); },
+				focus     : function() { self.ignoreBlur = false; return self.onFocus.apply(self, arguments); },
+				paste     : function() { return self.onPaste.apply(self, arguments); }
+			});
+	
+			$document.on('keydown' + eventNS, function(e) {
+				self.isCmdDown = e[IS_MAC ? 'metaKey' : 'ctrlKey'];
+				self.isCtrlDown = e[IS_MAC ? 'altKey' : 'ctrlKey'];
+				self.isShiftDown = e.shiftKey;
+			});
+	
+			$document.on('keyup' + eventNS, function(e) {
+				if (e.keyCode === KEY_CTRL) self.isCtrlDown = false;
+				if (e.keyCode === KEY_SHIFT) self.isShiftDown = false;
+				if (e.keyCode === KEY_CMD) self.isCmdDown = false;
+			});
+	
+			$document.on('mousedown' + eventNS, function(e) {
+				if (self.isFocused) {
+					// prevent events on the dropdown scrollbar from causing the control to blur
+					if (e.target === self.$dropdown[0] || e.target.parentNode === self.$dropdown[0]) {
+						return false;
+					}
+					// blur on click outside
+					if (!self.$control.has(e.target).length && e.target !== self.$control[0]) {
+						self.blur();
+					}
+				}
+			});
+	
+			$window.on(['scroll' + eventNS, 'resize' + eventNS].join(' '), function() {
+				if (self.isOpen) {
+					self.positionDropdown.apply(self, arguments);
+				}
+			});
+			$window.on('mousemove' + eventNS, function() {
+				self.ignoreHover = false;
+			});
+	
+			// store original children and tab index so that they can be
+			// restored when the destroy() method is called.
+			this.revertSettings = {
+				$children : $input.children().detach(),
+				tabindex  : $input.attr('tabindex')
+			};
+	
+			$input.attr('tabindex', -1).hide().after(self.$wrapper);
+	
+			if ($.isArray(settings.items)) {
+				self.setValue(settings.items);
+				delete settings.items;
+			}
+	
+			// feature detect for the validation API
+			if ($input[0].validity) {
+				$input.on('invalid' + eventNS, function(e) {
+					e.preventDefault();
+					self.isInvalid = true;
+					self.refreshState();
+				});
+			}
+	
+			self.updateOriginalInput();
+			self.refreshItems();
+			self.refreshState();
+			self.updatePlaceholder();
+			self.isSetup = true;
+	
+			if ($input.is(':disabled')) {
+				self.disable();
+			}
+	
+			self.on('change', this.onChange);
+	
+			$input.data('selectize', self);
+			$input.addClass('selectized');
+			self.trigger('initialize');
+	
+			// preload options
+			if (settings.preload === true) {
+				self.onSearchChange('');
+			}
+	
+		},
+	
+		/**
+		 * Sets up default rendering functions.
+		 */
+		setupTemplates: function() {
+			var self = this;
+			var field_label = self.settings.labelField;
+			var field_optgroup = self.settings.optgroupLabelField;
+	
+			var templates = {
+				'optgroup': function(data) {
+					return '<div class="optgroup">' + data.html + '</div>';
+				},
+				'optgroup_header': function(data, escape) {
+					return '<div class="optgroup-header">' + escape(data[field_optgroup]) + '</div>';
+				},
+				'option': function(data, escape) {
+					return '<div class="option">' + escape(data[field_label]) + '</div>';
+				},
+				'item': function(data, escape) {
+					return '<div class="item">' + escape(data[field_label]) + '</div>';
+				},
+				'option_create': function(data, escape) {
+					return '<div class="create">Add <strong>' + escape(data.input) + '</strong>&hellip;</div>';
+				}
+			};
+	
+			self.settings.render = $.extend({}, templates, self.settings.render);
+		},
+	
+		/**
+		 * Maps fired events to callbacks provided
+		 * in the settings used when creating the control.
+		 */
+		setupCallbacks: function() {
+			var key, fn, callbacks = {
+				'initialize'     : 'onInitialize',
+				'change'         : 'onChange',
+				'item_add'       : 'onItemAdd',
+				'item_remove'    : 'onItemRemove',
+				'clear'          : 'onClear',
+				'option_add'     : 'onOptionAdd',
+				'option_remove'  : 'onOptionRemove',
+				'option_clear'   : 'onOptionClear',
+				'dropdown_open'  : 'onDropdownOpen',
+				'dropdown_close' : 'onDropdownClose',
+				'type'           : 'onType',
+				'load'           : 'onLoad'
+			};
+	
+			for (key in callbacks) {
+				if (callbacks.hasOwnProperty(key)) {
+					fn = this.settings[callbacks[key]];
+					if (fn) this.on(key, fn);
+				}
+			}
+		},
+	
+		/**
+		 * Triggered when the main control element
+		 * has a click event.
+		 *
+		 * @param {object} e
+		 * @return {boolean}
+		 */
+		onClick: function(e) {
+			var self = this;
+	
+			// necessary for mobile webkit devices (manual focus triggering
+			// is ignored unless invoked within a click event)
+			if (!self.isFocused) {
+				self.focus();
+				e.preventDefault();
+			}
+		},
+	
+		/**
+		 * Triggered when the main control element
+		 * has a mouse down event.
+		 *
+		 * @param {object} e
+		 * @return {boolean}
+		 */
+		onMouseDown: function(e) {
+			var self = this;
+			var defaultPrevented = e.isDefaultPrevented();
+			var $target = $(e.target);
+	
+			if (self.isFocused) {
+				// retain focus by preventing native handling. if the
+				// event target is the input it should not be modified.
+				// otherwise, text selection within the input won't work.
+				if (e.target !== self.$control_input[0]) {
+					if (self.settings.mode === 'single') {
+						// toggle dropdown
+						self.isOpen ? self.close() : self.open();
+					} else if (!defaultPrevented) {
+						self.setActiveItem(null);
+					}
+					return false;
+				}
+			} else {
+				// give control focus
+				if (!defaultPrevented) {
+					window.setTimeout(function() {
+						self.focus();
+					}, 0);
+				}
+			}
+		},
+	
+		/**
+		 * Triggered when the value of the control has been changed.
+		 * This should propagate the event to the original DOM
+		 * input / select element.
+		 */
+		onChange: function() {
+			this.$input.trigger('change');
+		},
+	
+	
+		/**
+		 * Triggered on <input> paste.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onPaste: function(e) {
+			var self = this;
+			if (self.isFull() || self.isInputHidden || self.isLocked) {
+				e.preventDefault();
+			}
+		},
+	
+		/**
+		 * Triggered on <input> keypress.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onKeyPress: function(e) {
+			if (this.isLocked) return e && e.preventDefault();
+			var character = String.fromCharCode(e.keyCode || e.which);
+			if (this.settings.create && character === this.settings.delimiter) {
+				this.createItem();
+				e.preventDefault();
+				return false;
+			}
+		},
+	
+		/**
+		 * Triggered on <input> keydown.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onKeyDown: function(e) {
+			var isInput = e.target === this.$control_input[0];
+			var self = this;
+	
+			if (self.isLocked) {
+				if (e.keyCode !== KEY_TAB) {
+					e.preventDefault();
+				}
+				return;
+			}
+	
+			switch (e.keyCode) {
+				case KEY_A:
+					if (self.isCmdDown) {
+						self.selectAll();
+						return;
+					}
+					break;
+				case KEY_ESC:
+					self.close();
+					return;
+				case KEY_N:
+					if (!e.ctrlKey || e.altKey) break;
+				case KEY_DOWN:
+					if (!self.isOpen && self.hasOptions) {
+						self.open();
+					} else if (self.$activeOption) {
+						self.ignoreHover = true;
+						var $next = self.getAdjacentOption(self.$activeOption, 1);
+						if ($next.length) self.setActiveOption($next, true, true);
+					}
+					e.preventDefault();
+					return;
+				case KEY_P:
+					if (!e.ctrlKey || e.altKey) break;
+				case KEY_UP:
+					if (self.$activeOption) {
+						self.ignoreHover = true;
+						var $prev = self.getAdjacentOption(self.$activeOption, -1);
+						if ($prev.length) self.setActiveOption($prev, true, true);
+					}
+					e.preventDefault();
+					return;
+				case KEY_RETURN:
+					if (self.isOpen && self.$activeOption) {
+						self.onOptionSelect({currentTarget: self.$activeOption});
+					}
+					e.preventDefault();
+					return;
+				case KEY_LEFT:
+					self.advanceSelection(-1, e);
+					return;
+				case KEY_RIGHT:
+					self.advanceSelection(1, e);
+					return;
+				case KEY_TAB:
+					if (self.settings.selectOnTab && self.isOpen && self.$activeOption) {
+						self.onOptionSelect({currentTarget: self.$activeOption});
+						e.preventDefault();
+					}
+					if (self.settings.create && self.createItem()) {
+						e.preventDefault();
+					}
+					return;
+				case KEY_BACKSPACE:
+				case KEY_DELETE:
+					self.deleteSelection(e);
+					return;
+			}
+	
+			if ((self.isFull() || self.isInputHidden) && !(IS_MAC ? e.metaKey : e.ctrlKey)) {
+				e.preventDefault();
+				return;
+			}
+		},
+	
+		/**
+		 * Triggered on <input> keyup.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onKeyUp: function(e) {
+			var self = this;
+	
+			if (self.isLocked) return e && e.preventDefault();
+			var value = self.$control_input.val() || '';
+			if (self.lastValue !== value) {
+				self.lastValue = value;
+				self.onSearchChange(value);
+				self.refreshOptions();
+				self.trigger('type', value);
+			}
+		},
+	
+		/**
+		 * Invokes the user-provide option provider / loader.
+		 *
+		 * Note: this function is debounced in the Selectize
+		 * constructor (by `settings.loadDelay` milliseconds)
+		 *
+		 * @param {string} value
+		 */
+		onSearchChange: function(value) {
+			var self = this;
+			var fn = self.settings.load;
+			if (!fn) return;
+			if (self.loadedSearches.hasOwnProperty(value)) return;
+			self.loadedSearches[value] = true;
+			self.load(function(callback) {
+				fn.apply(self, [value, callback]);
+			});
+		},
+	
+		/**
+		 * Triggered on <input> focus.
+		 *
+		 * @param {object} e (optional)
+		 * @returns {boolean}
+		 */
+		onFocus: function(e) {
+			var self = this;
+	
+			self.isFocused = true;
+			if (self.isDisabled) {
+				self.blur();
+				e && e.preventDefault();
+				return false;
+			}
+	
+			if (self.ignoreFocus) return;
+			if (self.settings.preload === 'focus') self.onSearchChange('');
+	
+			if (!self.$activeItems.length) {
+				self.showInput();
+				self.setActiveItem(null);
+				self.refreshOptions(!!self.settings.openOnFocus);
+			}
+	
+			self.refreshState();
+		},
+	
+		/**
+		 * Triggered on <input> blur.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onBlur: function(e) {
+			var self = this;
+			self.isFocused = false;
+			if (self.ignoreFocus) return;
+	
+			// necessary to prevent IE closing the dropdown when the scrollbar is clicked
+			if (!self.ignoreBlur && document.activeElement === self.$dropdown_content[0]) {
+				self.ignoreBlur = true;
+				self.onFocus(e);
+	
+				return;
+			}
+	
+			if (self.settings.create && self.settings.createOnBlur) {
+				self.createItem(false);
+			}
+	
+			self.close();
+			self.setTextboxValue('');
+			self.setActiveItem(null);
+			self.setActiveOption(null);
+			self.setCaret(self.items.length);
+			self.refreshState();
+		},
+	
+		/**
+		 * Triggered when the user rolls over
+		 * an option in the autocomplete dropdown menu.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onOptionHover: function(e) {
+			if (this.ignoreHover) return;
+			this.setActiveOption(e.currentTarget, false);
+		},
+	
+		/**
+		 * Triggered when the user clicks on an option
+		 * in the autocomplete dropdown menu.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onOptionSelect: function(e) {
+			var value, $target, $option, self = this;
+	
+			if (e.preventDefault) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+	
+			$target = $(e.currentTarget);
+			if ($target.hasClass('create')) {
+				self.createItem();
+			} else {
+				value = $target.attr('data-value');
+				if (typeof value !== 'undefined') {
+					self.lastQuery = null;
+					self.setTextboxValue('');
+					self.addItem(value);
+					if (!self.settings.hideSelected && e.type && /mouse/.test(e.type)) {
+						self.setActiveOption(self.getOption(value));
+					}
+				}
+			}
+		},
+	
+		/**
+		 * Triggered when the user clicks on an item
+		 * that has been selected.
+		 *
+		 * @param {object} e
+		 * @returns {boolean}
+		 */
+		onItemSelect: function(e) {
+			var self = this;
+	
+			if (self.isLocked) return;
+			if (self.settings.mode === 'multi') {
+				e.preventDefault();
+				self.setActiveItem(e.currentTarget, e);
+			}
+		},
+	
+		/**
+		 * Invokes the provided method that provides
+		 * results to a callback---which are then added
+		 * as options to the control.
+		 *
+		 * @param {function} fn
+		 */
+		load: function(fn) {
+			var self = this;
+			var $wrapper = self.$wrapper.addClass('loading');
+	
+			self.loading++;
+			fn.apply(self, [function(results) {
+				self.loading = Math.max(self.loading - 1, 0);
+				if (results && results.length) {
+					self.addOption(results);
+					self.refreshOptions(self.isFocused && !self.isInputHidden);
+				}
+				if (!self.loading) {
+					$wrapper.removeClass('loading');
+				}
+				self.trigger('load', results);
+			}]);
+		},
+	
+		/**
+		 * Sets the input field of the control to the specified value.
+		 *
+		 * @param {string} value
+		 */
+		setTextboxValue: function(value) {
+			var $input = this.$control_input;
+			var changed = $input.val() !== value;
+			if (changed) {
+				$input.val(value).triggerHandler('update');
+				this.lastValue = value;
+			}
+		},
+	
+		/**
+		 * Returns the value of the control. If multiple items
+		 * can be selected (e.g. <select multiple>), this returns
+		 * an array. If only one item can be selected, this
+		 * returns a string.
+		 *
+		 * @returns {mixed}
+		 */
+		getValue: function() {
+			if (this.tagType === TAG_SELECT && this.$input.attr('multiple')) {
+				return this.items;
+			} else {
+				return this.items.join(this.settings.delimiter);
+			}
+		},
+	
+		/**
+		 * Resets the selected items to the given value.
+		 *
+		 * @param {mixed} value
+		 */
+		setValue: function(value) {
+			debounce_events(this, ['change'], function() {
+				this.clear();
+				this.addItems(value);
+			});
+		},
+	
+		/**
+		 * Sets the selected item.
+		 *
+		 * @param {object} $item
+		 * @param {object} e (optional)
+		 */
+		setActiveItem: function($item, e) {
+			var self = this;
+			var eventName;
+			var i, idx, begin, end, item, swap;
+			var $last;
+	
+			if (self.settings.mode === 'single') return;
+			$item = $($item);
+	
+			// clear the active selection
+			if (!$item.length) {
+				$(self.$activeItems).removeClass('active');
+				self.$activeItems = [];
+				if (self.isFocused) {
+					self.showInput();
+				}
+				return;
+			}
+	
+			// modify selection
+			eventName = e && e.type.toLowerCase();
+	
+			if (eventName === 'mousedown' && self.isShiftDown && self.$activeItems.length) {
+				$last = self.$control.children('.active:last');
+				begin = Array.prototype.indexOf.apply(self.$control[0].childNodes, [$last[0]]);
+				end   = Array.prototype.indexOf.apply(self.$control[0].childNodes, [$item[0]]);
+				if (begin > end) {
+					swap  = begin;
+					begin = end;
+					end   = swap;
+				}
+				for (i = begin; i <= end; i++) {
+					item = self.$control[0].childNodes[i];
+					if (self.$activeItems.indexOf(item) === -1) {
+						$(item).addClass('active');
+						self.$activeItems.push(item);
+					}
+				}
+				e.preventDefault();
+			} else if ((eventName === 'mousedown' && self.isCtrlDown) || (eventName === 'keydown' && this.isShiftDown)) {
+				if ($item.hasClass('active')) {
+					idx = self.$activeItems.indexOf($item[0]);
+					self.$activeItems.splice(idx, 1);
+					$item.removeClass('active');
+				} else {
+					self.$activeItems.push($item.addClass('active')[0]);
+				}
+			} else {
+				$(self.$activeItems).removeClass('active');
+				self.$activeItems = [$item.addClass('active')[0]];
+			}
+	
+			// ensure control has focus
+			self.hideInput();
+			if (!this.isFocused) {
+				self.focus();
+			}
+		},
+	
+		/**
+		 * Sets the selected item in the dropdown menu
+		 * of available options.
+		 *
+		 * @param {object} $object
+		 * @param {boolean} scroll
+		 * @param {boolean} animate
+		 */
+		setActiveOption: function($option, scroll, animate) {
+			var height_menu, height_item, y;
+			var scroll_top, scroll_bottom;
+			var self = this;
+	
+			if (self.$activeOption) self.$activeOption.removeClass('active');
+			self.$activeOption = null;
+	
+			$option = $($option);
+			if (!$option.length) return;
+	
+			self.$activeOption = $option.addClass('active');
+	
+			if (scroll || !isset(scroll)) {
+	
+				height_menu   = self.$dropdown_content.height();
+				height_item   = self.$activeOption.outerHeight(true);
+				scroll        = self.$dropdown_content.scrollTop() || 0;
+				y             = self.$activeOption.offset().top - self.$dropdown_content.offset().top + scroll;
+				scroll_top    = y;
+				scroll_bottom = y - height_menu + height_item;
+	
+				if (y + height_item > height_menu + scroll) {
+					self.$dropdown_content.stop().animate({scrollTop: scroll_bottom}, animate ? self.settings.scrollDuration : 0);
+				} else if (y < scroll) {
+					self.$dropdown_content.stop().animate({scrollTop: scroll_top}, animate ? self.settings.scrollDuration : 0);
+				}
+	
+			}
+		},
+	
+		/**
+		 * Selects all items (CTRL + A).
+		 */
+		selectAll: function() {
+			var self = this;
+			if (self.settings.mode === 'single') return;
+	
+			self.$activeItems = Array.prototype.slice.apply(self.$control.children(':not(input)').addClass('active'));
+			if (self.$activeItems.length) {
+				self.hideInput();
+				self.close();
+			}
+			self.focus();
+		},
+	
+		/**
+		 * Hides the input element out of view, while
+		 * retaining its focus.
+		 */
+		hideInput: function() {
+			var self = this;
+	
+			self.setTextboxValue('');
+			self.$control_input.css({opacity: 0, position: 'absolute', left: self.rtl ? 10000 : -10000});
+			self.isInputHidden = true;
+		},
+	
+		/**
+		 * Restores input visibility.
+		 */
+		showInput: function() {
+			this.$control_input.css({opacity: 1, position: 'relative', left: 0});
+			this.isInputHidden = false;
+		},
+	
+		/**
+		 * Gives the control focus. If "trigger" is falsy,
+		 * focus handlers won't be fired--causing the focus
+		 * to happen silently in the background.
+		 *
+		 * @param {boolean} trigger
+		 */
+		focus: function() {
+			var self = this;
+			if (self.isDisabled) return;
+	
+			self.ignoreFocus = true;
+			self.$control_input[0].focus();
+			window.setTimeout(function() {
+				self.ignoreFocus = false;
+				self.onFocus();
+			}, 0);
+		},
+	
+		/**
+		 * Forces the control out of focus.
+		 */
+		blur: function() {
+			this.$control_input.trigger('blur');
+		},
+	
+		/**
+		 * Returns a function that scores an object
+		 * to show how good of a match it is to the
+		 * provided query.
+		 *
+		 * @param {string} query
+		 * @param {object} options
+		 * @return {function}
+		 */
+		getScoreFunction: function(query) {
+			return this.sifter.getScoreFunction(query, this.getSearchOptions());
+		},
+	
+		/**
+		 * Returns search options for sifter (the system
+		 * for scoring and sorting results).
+		 *
+		 * @see https://github.com/brianreavis/sifter.js
+		 * @return {object}
+		 */
+		getSearchOptions: function() {
+			var settings = this.settings;
+			var sort = settings.sortField;
+			if (typeof sort === 'string') {
+				sort = {field: sort};
+			}
+	
+			return {
+				fields      : settings.searchField,
+				conjunction : settings.searchConjunction,
+				sort        : sort
+			};
+		},
+	
+		/**
+		 * Searches through available options and returns
+		 * a sorted array of matches.
+		 *
+		 * Returns an object containing:
+		 *
+		 *   - query {string}
+		 *   - tokens {array}
+		 *   - total {int}
+		 *   - items {array}
+		 *
+		 * @param {string} query
+		 * @returns {object}
+		 */
+		search: function(query) {
+			var i, value, score, result, calculateScore;
+			var self     = this;
+			var settings = self.settings;
+			var options  = this.getSearchOptions();
+	
+			// validate user-provided result scoring function
+			if (settings.score) {
+				calculateScore = self.settings.score.apply(this, [query]);
+				if (typeof calculateScore !== 'function') {
+					throw new Error('Selectize "score" setting must be a function that returns a function');
+				}
+			}
+	
+			// perform search
+			if (query !== self.lastQuery) {
+				self.lastQuery = query;
+				result = self.sifter.search(query, $.extend(options, {score: calculateScore}));
+				self.currentResults = result;
+			} else {
+				result = $.extend(true, {}, self.currentResults);
+			}
+	
+			// filter out selected items
+			if (settings.hideSelected) {
+				for (i = result.items.length - 1; i >= 0; i--) {
+					if (self.items.indexOf(hash_key(result.items[i].id)) !== -1) {
+						result.items.splice(i, 1);
+					}
+				}
+			}
+	
+			return result;
+		},
+	
+		/**
+		 * Refreshes the list of available options shown
+		 * in the autocomplete dropdown menu.
+		 *
+		 * @param {boolean} triggerDropdown
+		 */
+		refreshOptions: function(triggerDropdown) {
+			var i, j, k, n, groups, groups_order, option, option_html, optgroup, optgroups, html, html_children, has_create_option;
+			var $active, $active_before, $create;
+	
+			if (typeof triggerDropdown === 'undefined') {
+				triggerDropdown = true;
+			}
+	
+			var self              = this;
+			var query             = $.trim(self.$control_input.val());
+			var results           = self.search(query);
+			var $dropdown_content = self.$dropdown_content;
+			var active_before     = self.$activeOption && hash_key(self.$activeOption.attr('data-value'));
+	
+			// build markup
+			n = results.items.length;
+			if (typeof self.settings.maxOptions === 'number') {
+				n = Math.min(n, self.settings.maxOptions);
+			}
+	
+			// render and group available options individually
+			groups = {};
+	
+			if (self.settings.optgroupOrder) {
+				groups_order = self.settings.optgroupOrder;
+				for (i = 0; i < groups_order.length; i++) {
+					groups[groups_order[i]] = [];
+				}
+			} else {
+				groups_order = [];
+			}
+	
+			for (i = 0; i < n; i++) {
+				option      = self.options[results.items[i].id];
+				option_html = self.render('option', option);
+				optgroup    = option[self.settings.optgroupField] || '';
+				optgroups   = $.isArray(optgroup) ? optgroup : [optgroup];
+	
+				for (j = 0, k = optgroups && optgroups.length; j < k; j++) {
+					optgroup = optgroups[j];
+					if (!self.optgroups.hasOwnProperty(optgroup)) {
+						optgroup = '';
+					}
+					if (!groups.hasOwnProperty(optgroup)) {
+						groups[optgroup] = [];
+						groups_order.push(optgroup);
+					}
+					groups[optgroup].push(option_html);
+				}
+			}
+	
+			// render optgroup headers & join groups
+			html = [];
+			for (i = 0, n = groups_order.length; i < n; i++) {
+				optgroup = groups_order[i];
+				if (self.optgroups.hasOwnProperty(optgroup) && groups[optgroup].length) {
+					// render the optgroup header and options within it,
+					// then pass it to the wrapper template
+					html_children = self.render('optgroup_header', self.optgroups[optgroup]) || '';
+					html_children += groups[optgroup].join('');
+					html.push(self.render('optgroup', $.extend({}, self.optgroups[optgroup], {
+						html: html_children
+					})));
+				} else {
+					html.push(groups[optgroup].join(''));
+				}
+			}
+	
+			$dropdown_content.html(html.join(''));
+	
+			// highlight matching terms inline
+			if (self.settings.highlight && results.query.length && results.tokens.length) {
+				for (i = 0, n = results.tokens.length; i < n; i++) {
+					highlight($dropdown_content, results.tokens[i].regex);
+				}
+			}
+	
+			// add "selected" class to selected options
+			if (!self.settings.hideSelected) {
+				for (i = 0, n = self.items.length; i < n; i++) {
+					self.getOption(self.items[i]).addClass('selected');
+				}
+			}
+	
+			// add create option
+			has_create_option = self.canCreate(query);
+			if (has_create_option) {
+				$dropdown_content.prepend(self.render('option_create', {input: query}));
+				$create = $($dropdown_content[0].childNodes[0]);
+			}
+	
+			// activate
+			self.hasOptions = results.items.length > 0 || has_create_option;
+			if (self.hasOptions) {
+				if (results.items.length > 0) {
+					$active_before = active_before && self.getOption(active_before);
+					if ($active_before && $active_before.length) {
+						$active = $active_before;
+					} else if (self.settings.mode === 'single' && self.items.length) {
+						$active = self.getOption(self.items[0]);
+					}
+					if (!$active || !$active.length) {
+						if ($create && !self.settings.addPrecedence) {
+							$active = self.getAdjacentOption($create, 1);
+						} else {
+							$active = $dropdown_content.find('[data-selectable]:first');
+						}
+					}
+				} else {
+					$active = $create;
+				}
+				self.setActiveOption($active);
+				if (triggerDropdown && !self.isOpen) { self.open(); }
+			} else {
+				self.setActiveOption(null);
+				if (triggerDropdown && self.isOpen) { self.close(); }
+			}
+		},
+	
+		/**
+		 * Adds an available option. If it already exists,
+		 * nothing will happen. Note: this does not refresh
+		 * the options list dropdown (use `refreshOptions`
+		 * for that).
+		 *
+		 * Usage:
+		 *
+		 *   this.addOption(data)
+		 *
+		 * @param {object} data
+		 */
+		addOption: function(data) {
+			var i, n, optgroup, value, self = this;
+	
+			if ($.isArray(data)) {
+				for (i = 0, n = data.length; i < n; i++) {
+					self.addOption(data[i]);
+				}
+				return;
+			}
+	
+			value = hash_key(data[self.settings.valueField]);
+			if (typeof value !== 'string' || self.options.hasOwnProperty(value)) return;
+	
+			self.userOptions[value] = true;
+			self.options[value] = data;
+			self.lastQuery = null;
+			self.trigger('option_add', value, data);
+		},
+	
+		/**
+		 * Registers a new optgroup for options
+		 * to be bucketed into.
+		 *
+		 * @param {string} id
+		 * @param {object} data
+		 */
+		addOptionGroup: function(id, data) {
+			this.optgroups[id] = data;
+			this.trigger('optgroup_add', id, data);
+		},
+	
+		/**
+		 * Updates an option available for selection. If
+		 * it is visible in the selected items or options
+		 * dropdown, it will be re-rendered automatically.
+		 *
+		 * @param {string} value
+		 * @param {object} data
+		 */
+		updateOption: function(value, data) {
+			var self = this;
+			var $item, $item_new;
+			var value_new, index_item, cache_items, cache_options;
+	
+			value     = hash_key(value);
+			value_new = hash_key(data[self.settings.valueField]);
+	
+			// sanity checks
+			if (value === null) return;
+			if (!self.options.hasOwnProperty(value)) return;
+			if (typeof value_new !== 'string') throw new Error('Value must be set in option data');
+	
+			// update references
+			if (value_new !== value) {
+				delete self.options[value];
+				index_item = self.items.indexOf(value);
+				if (index_item !== -1) {
+					self.items.splice(index_item, 1, value_new);
+				}
+			}
+			self.options[value_new] = data;
+	
+			// invalidate render cache
+			cache_items = self.renderCache['item'];
+			cache_options = self.renderCache['option'];
+	
+			if (cache_items) {
+				delete cache_items[value];
+				delete cache_items[value_new];
+			}
+			if (cache_options) {
+				delete cache_options[value];
+				delete cache_options[value_new];
+			}
+	
+			// update the item if it's selected
+			if (self.items.indexOf(value_new) !== -1) {
+				$item = self.getItem(value);
+				$item_new = $(self.render('item', data));
+				if ($item.hasClass('active')) $item_new.addClass('active');
+				$item.replaceWith($item_new);
+			}
+	
+			//invalidate last query because we might have updated the sortField
+			self.lastQuery = null;
+	
+			// update dropdown contents
+			if (self.isOpen) {
+				self.refreshOptions(false);
+			}
+		},
+	
+		/**
+		 * Removes a single option.
+		 *
+		 * @param {string} value
+		 */
+		removeOption: function(value) {
+			var self = this;
+			value = hash_key(value);
+	
+			var cache_items = self.renderCache['item'];
+			var cache_options = self.renderCache['option'];
+			if (cache_items) delete cache_items[value];
+			if (cache_options) delete cache_options[value];
+	
+			delete self.userOptions[value];
+			delete self.options[value];
+			self.lastQuery = null;
+			self.trigger('option_remove', value);
+			self.removeItem(value);
+		},
+	
+		/**
+		 * Clears all options.
+		 */
+		clearOptions: function() {
+			var self = this;
+	
+			self.loadedSearches = {};
+			self.userOptions = {};
+			self.renderCache = {};
+			self.options = self.sifter.items = {};
+			self.lastQuery = null;
+			self.trigger('option_clear');
+			self.clear();
+		},
+	
+		/**
+		 * Returns the jQuery element of the option
+		 * matching the given value.
+		 *
+		 * @param {string} value
+		 * @returns {object}
+		 */
+		getOption: function(value) {
+			return this.getElementWithValue(value, this.$dropdown_content.find('[data-selectable]'));
+		},
+	
+		/**
+		 * Returns the jQuery element of the next or
+		 * previous selectable option.
+		 *
+		 * @param {object} $option
+		 * @param {int} direction  can be 1 for next or -1 for previous
+		 * @return {object}
+		 */
+		getAdjacentOption: function($option, direction) {
+			var $options = this.$dropdown.find('[data-selectable]');
+			var index    = $options.index($option) + direction;
+	
+			return index >= 0 && index < $options.length ? $options.eq(index) : $();
+		},
+	
+		/**
+		 * Finds the first element with a "data-value" attribute
+		 * that matches the given value.
+		 *
+		 * @param {mixed} value
+		 * @param {object} $els
+		 * @return {object}
+		 */
+		getElementWithValue: function(value, $els) {
+			value = hash_key(value);
+	
+			if (typeof value !== 'undefined' && value !== null) {
+				for (var i = 0, n = $els.length; i < n; i++) {
+					if ($els[i].getAttribute('data-value') === value) {
+						return $($els[i]);
+					}
+				}
+			}
+	
+			return $();
+		},
+	
+		/**
+		 * Returns the jQuery element of the item
+		 * matching the given value.
+		 *
+		 * @param {string} value
+		 * @returns {object}
+		 */
+		getItem: function(value) {
+			return this.getElementWithValue(value, this.$control.children());
+		},
+	
+		/**
+		 * "Selects" multiple items at once. Adds them to the list
+		 * at the current caret position.
+		 *
+		 * @param {string} value
+		 */
+		addItems: function(values) {
+			var items = $.isArray(values) ? values : [values];
+			for (var i = 0, n = items.length; i < n; i++) {
+				this.isPending = (i < n - 1);
+				this.addItem(items[i]);
+			}
+		},
+	
+		/**
+		 * "Selects" an item. Adds it to the list
+		 * at the current caret position.
+		 *
+		 * @param {string} value
+		 */
+		addItem: function(value) {
+			debounce_events(this, ['change'], function() {
+				var $item, $option, $options;
+				var self = this;
+				var inputMode = self.settings.mode;
+				var i, active, value_next, wasFull;
+				value = hash_key(value);
+	
+				if (self.items.indexOf(value) !== -1) {
+					if (inputMode === 'single') self.close();
+					return;
+				}
+	
+				if (!self.options.hasOwnProperty(value)) return;
+				if (inputMode === 'single') self.clear();
+				if (inputMode === 'multi' && self.isFull()) return;
+	
+				$item = $(self.render('item', self.options[value]));
+				wasFull = self.isFull();
+				self.items.splice(self.caretPos, 0, value);
+				self.insertAtCaret($item);
+				if (!self.isPending || (!wasFull && self.isFull())) {
+					self.refreshState();
+				}
+	
+				if (self.isSetup) {
+					$options = self.$dropdown_content.find('[data-selectable]');
+	
+					// update menu / remove the option (if this is not one item being added as part of series)
+					if (!self.isPending) {
+						$option = self.getOption(value);
+						value_next = self.getAdjacentOption($option, 1).attr('data-value');
+						self.refreshOptions(self.isFocused && inputMode !== 'single');
+						if (value_next) {
+							self.setActiveOption(self.getOption(value_next));
+						}
+					}
+	
+					// hide the menu if the maximum number of items have been selected or no options are left
+					if (!$options.length || self.isFull()) {
+						self.close();
+					} else {
+						self.positionDropdown();
+					}
+	
+					self.updatePlaceholder();
+					self.trigger('item_add', value, $item);
+					self.updateOriginalInput();
+				}
+			});
+		},
+	
+		/**
+		 * Removes the selected item matching
+		 * the provided value.
+		 *
+		 * @param {string} value
+		 */
+		removeItem: function(value) {
+			var self = this;
+			var $item, i, idx;
+	
+			$item = (typeof value === 'object') ? value : self.getItem(value);
+			value = hash_key($item.attr('data-value'));
+			i = self.items.indexOf(value);
+	
+			if (i !== -1) {
+				$item.remove();
+				if ($item.hasClass('active')) {
+					idx = self.$activeItems.indexOf($item[0]);
+					self.$activeItems.splice(idx, 1);
+				}
+	
+				self.items.splice(i, 1);
+				self.lastQuery = null;
+				if (!self.settings.persist && self.userOptions.hasOwnProperty(value)) {
+					self.removeOption(value);
+				}
+	
+				if (i < self.caretPos) {
+					self.setCaret(self.caretPos - 1);
+				}
+	
+				self.refreshState();
+				self.updatePlaceholder();
+				self.updateOriginalInput();
+				self.positionDropdown();
+				self.trigger('item_remove', value);
+			}
+		},
+	
+		/**
+		 * Invokes the `create` method provided in the
+		 * selectize options that should provide the data
+		 * for the new item, given the user input.
+		 *
+		 * Once this completes, it will be added
+		 * to the item list.
+		 *
+		 * @return {boolean}
+		 */
+		createItem: function(triggerDropdown) {
+			var self  = this;
+			var input = $.trim(self.$control_input.val() || '');
+			var caret = self.caretPos;
+			if (!self.canCreate(input)) return false;
+			self.lock();
+	
+			if (typeof triggerDropdown === 'undefined') {
+				triggerDropdown = true;
+			}
+	
+			var setup = (typeof self.settings.create === 'function') ? this.settings.create : function(input) {
+				var data = {};
+				data[self.settings.labelField] = input;
+				data[self.settings.valueField] = input;
+				return data;
+			};
+	
+			var create = once(function(data) {
+				self.unlock();
+	
+				if (!data || typeof data !== 'object') return;
+				var value = hash_key(data[self.settings.valueField]);
+				if (typeof value !== 'string') return;
+	
+				self.setTextboxValue('');
+				self.addOption(data);
+				self.setCaret(caret);
+				self.addItem(value);
+				self.refreshOptions(triggerDropdown && self.settings.mode !== 'single');
+			});
+	
+			var output = setup.apply(this, [input, create]);
+			if (typeof output !== 'undefined') {
+				create(output);
+			}
+	
+			return true;
+		},
+	
+		/**
+		 * Re-renders the selected item lists.
+		 */
+		refreshItems: function() {
+			this.lastQuery = null;
+	
+			if (this.isSetup) {
+				for (var i = 0; i < this.items.length; i++) {
+					this.addItem(this.items);
+				}
+			}
+	
+			this.refreshState();
+			this.updateOriginalInput();
+		},
+	
+		/**
+		 * Updates all state-dependent attributes
+		 * and CSS classes.
+		 */
+		refreshState: function() {
+			var invalid, self = this;
+			if (self.isRequired) {
+				if (self.items.length) self.isInvalid = false;
+				self.$control_input.prop('required', invalid);
+			}
+			self.refreshClasses();
+		},
+	
+		/**
+		 * Updates all state-dependent CSS classes.
+		 */
+		refreshClasses: function() {
+			var self     = this;
+			var isFull   = self.isFull();
+			var isLocked = self.isLocked;
+	
+			self.$wrapper
+				.toggleClass('rtl', self.rtl);
+	
+			self.$control
+				.toggleClass('focus', self.isFocused)
+				.toggleClass('disabled', self.isDisabled)
+				.toggleClass('required', self.isRequired)
+				.toggleClass('invalid', self.isInvalid)
+				.toggleClass('locked', isLocked)
+				.toggleClass('full', isFull).toggleClass('not-full', !isFull)
+				.toggleClass('input-active', self.isFocused && !self.isInputHidden)
+				.toggleClass('dropdown-active', self.isOpen)
+				.toggleClass('has-options', !$.isEmptyObject(self.options))
+				.toggleClass('has-items', self.items.length > 0);
+	
+			self.$control_input.data('grow', !isFull && !isLocked);
+		},
+	
+		/**
+		 * Determines whether or not more items can be added
+		 * to the control without exceeding the user-defined maximum.
+		 *
+		 * @returns {boolean}
+		 */
+		isFull: function() {
+			return this.settings.maxItems !== null && this.items.length >= this.settings.maxItems;
+		},
+	
+		/**
+		 * Refreshes the original <select> or <input>
+		 * element to reflect the current state.
+		 */
+		updateOriginalInput: function() {
+			var i, n, options, self = this;
+	
+			if (self.tagType === TAG_SELECT) {
+				options = [];
+				for (i = 0, n = self.items.length; i < n; i++) {
+					options.push('<option value="' + escape_html(self.items[i]) + '" selected="selected"></option>');
+				}
+				if (!options.length && !this.$input.attr('multiple')) {
+					options.push('<option value="" selected="selected"></option>');
+				}
+				self.$input.html(options.join(''));
+			} else {
+				self.$input.val(self.getValue());
+				self.$input.attr('value',self.$input.val());
+			}
+	
+			if (self.isSetup) {
+				self.trigger('change', self.$input.val());
+			}
+		},
+	
+		/**
+		 * Shows/hide the input placeholder depending
+		 * on if there items in the list already.
+		 */
+		updatePlaceholder: function() {
+			if (!this.settings.placeholder) return;
+			var $input = this.$control_input;
+	
+			if (this.items.length) {
+				$input.removeAttr('placeholder');
+			} else {
+				$input.attr('placeholder', this.settings.placeholder);
+			}
+			$input.triggerHandler('update', {force: true});
+		},
+	
+		/**
+		 * Shows the autocomplete dropdown containing
+		 * the available options.
+		 */
+		open: function() {
+			var self = this;
+	
+			if (self.isLocked || self.isOpen || (self.settings.mode === 'multi' && self.isFull())) return;
+			self.focus();
+			self.isOpen = true;
+			self.refreshState();
+			self.$dropdown.css({visibility: 'hidden', display: 'block'});
+			self.positionDropdown();
+			self.$dropdown.css({visibility: 'visible'});
+			self.trigger('dropdown_open', self.$dropdown);
+		},
+	
+		/**
+		 * Closes the autocomplete dropdown menu.
+		 */
+		close: function() {
+			var self = this;
+			var trigger = self.isOpen;
+	
+			if (self.settings.mode === 'single' && self.items.length) {
+				self.hideInput();
+			}
+	
+			self.isOpen = false;
+			self.$dropdown.hide();
+			self.setActiveOption(null);
+			self.refreshState();
+	
+			if (trigger) self.trigger('dropdown_close', self.$dropdown);
+		},
+	
+		/**
+		 * Calculates and applies the appropriate
+		 * position of the dropdown.
+		 */
+		positionDropdown: function() {
+			var $control = this.$control;
+			var offset = this.settings.dropdownParent === 'body' ? $control.offset() : $control.position();
+			offset.top += $control.outerHeight(true);
+	
+			this.$dropdown.css({
+				width : $control.outerWidth(),
+				top   : offset.top,
+				left  : offset.left
+			});
+		},
+	
+		/**
+		 * Resets / clears all selected items
+		 * from the control.
+		 */
+		clear: function() {
+			var self = this;
+	
+			if (!self.items.length) return;
+			self.$control.children(':not(input)').remove();
+			self.items = [];
+			self.lastQuery = null;
+			self.setCaret(0);
+			self.setActiveItem(null);
+			self.updatePlaceholder();
+			self.updateOriginalInput();
+			self.refreshState();
+			self.showInput();
+			self.trigger('clear');
+		},
+	
+		/**
+		 * A helper method for inserting an element
+		 * at the current caret position.
+		 *
+		 * @param {object} $el
+		 */
+		insertAtCaret: function($el) {
+			var caret = Math.min(this.caretPos, this.items.length);
+			if (caret === 0) {
+				this.$control.prepend($el);
+			} else {
+				$(this.$control[0].childNodes[caret]).before($el);
+			}
+			this.setCaret(caret + 1);
+		},
+	
+		/**
+		 * Removes the current selected item(s).
+		 *
+		 * @param {object} e (optional)
+		 * @returns {boolean}
+		 */
+		deleteSelection: function(e) {
+			var i, n, direction, selection, values, caret, option_select, $option_select, $tail;
+			var self = this;
+	
+			direction = (e && e.keyCode === KEY_BACKSPACE) ? -1 : 1;
+			selection = getSelection(self.$control_input[0]);
+	
+			if (self.$activeOption && !self.settings.hideSelected) {
+				option_select = self.getAdjacentOption(self.$activeOption, -1).attr('data-value');
+			}
+	
+			// determine items that will be removed
+			values = [];
+	
+			if (self.$activeItems.length) {
+				$tail = self.$control.children('.active:' + (direction > 0 ? 'last' : 'first'));
+				caret = self.$control.children(':not(input)').index($tail);
+				if (direction > 0) { caret++; }
+	
+				for (i = 0, n = self.$activeItems.length; i < n; i++) {
+					values.push($(self.$activeItems[i]).attr('data-value'));
+				}
+				if (e) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			} else if ((self.isFocused || self.settings.mode === 'single') && self.items.length) {
+				if (direction < 0 && selection.start === 0 && selection.length === 0) {
+					values.push(self.items[self.caretPos - 1]);
+				} else if (direction > 0 && selection.start === self.$control_input.val().length) {
+					values.push(self.items[self.caretPos]);
+				}
+			}
+	
+			// allow the callback to abort
+			if (!values.length || (typeof self.settings.onDelete === 'function' && self.settings.onDelete.apply(self, [values]) === false)) {
+				return false;
+			}
+	
+			// perform removal
+			if (typeof caret !== 'undefined') {
+				self.setCaret(caret);
+			}
+			while (values.length) {
+				self.removeItem(values.pop());
+			}
+	
+			self.showInput();
+			self.positionDropdown();
+			self.refreshOptions(true);
+	
+			// select previous option
+			if (option_select) {
+				$option_select = self.getOption(option_select);
+				if ($option_select.length) {
+					self.setActiveOption($option_select);
+				}
+			}
+	
+			return true;
+		},
+	
+		/**
+		 * Selects the previous / next item (depending
+		 * on the `direction` argument).
+		 *
+		 * > 0 - right
+		 * < 0 - left
+		 *
+		 * @param {int} direction
+		 * @param {object} e (optional)
+		 */
+		advanceSelection: function(direction, e) {
+			var tail, selection, idx, valueLength, cursorAtEdge, $tail;
+			var self = this;
+	
+			if (direction === 0) return;
+			if (self.rtl) direction *= -1;
+	
+			tail = direction > 0 ? 'last' : 'first';
+			selection = getSelection(self.$control_input[0]);
+	
+			if (self.isFocused && !self.isInputHidden) {
+				valueLength = self.$control_input.val().length;
+				cursorAtEdge = direction < 0
+					? selection.start === 0 && selection.length === 0
+					: selection.start === valueLength;
+	
+				if (cursorAtEdge && !valueLength) {
+					self.advanceCaret(direction, e);
+				}
+			} else {
+				$tail = self.$control.children('.active:' + tail);
+				if ($tail.length) {
+					idx = self.$control.children(':not(input)').index($tail);
+					self.setActiveItem(null);
+					self.setCaret(direction > 0 ? idx + 1 : idx);
+				}
+			}
+		},
+	
+		/**
+		 * Moves the caret left / right.
+		 *
+		 * @param {int} direction
+		 * @param {object} e (optional)
+		 */
+		advanceCaret: function(direction, e) {
+			var self = this, fn, $adj;
+	
+			if (direction === 0) return;
+	
+			fn = direction > 0 ? 'next' : 'prev';
+			if (self.isShiftDown) {
+				$adj = self.$control_input[fn]();
+				if ($adj.length) {
+					self.hideInput();
+					self.setActiveItem($adj);
+					e && e.preventDefault();
+				}
+			} else {
+				self.setCaret(self.caretPos + direction);
+			}
+		},
+	
+		/**
+		 * Moves the caret to the specified index.
+		 *
+		 * @param {int} i
+		 */
+		setCaret: function(i) {
+			var self = this;
+	
+			if (self.settings.mode === 'single') {
+				i = self.items.length;
+			} else {
+				i = Math.max(0, Math.min(self.items.length, i));
+			}
+	
+			if(!self.isPending) {
+				// the input must be moved by leaving it in place and moving the
+				// siblings, due to the fact that focus cannot be restored once lost
+				// on mobile webkit devices
+				var j, n, fn, $children, $child;
+				$children = self.$control.children(':not(input)');
+				for (j = 0, n = $children.length; j < n; j++) {
+					$child = $($children[j]).detach();
+					if (j <  i) {
+						self.$control_input.before($child);
+					} else {
+						self.$control.append($child);
+					}
+				}
+			}
+	
+			self.caretPos = i;
+		},
+	
+		/**
+		 * Disables user input on the control. Used while
+		 * items are being asynchronously created.
+		 */
+		lock: function() {
+			this.close();
+			this.isLocked = true;
+			this.refreshState();
+		},
+	
+		/**
+		 * Re-enables user input on the control.
+		 */
+		unlock: function() {
+			this.isLocked = false;
+			this.refreshState();
+		},
+	
+		/**
+		 * Disables user input on the control completely.
+		 * While disabled, it cannot receive focus.
+		 */
+		disable: function() {
+			var self = this;
+			self.$input.prop('disabled', true);
+			self.isDisabled = true;
+			self.lock();
+		},
+	
+		/**
+		 * Enables the control so that it can respond
+		 * to focus and user input.
+		 */
+		enable: function() {
+			var self = this;
+			self.$input.prop('disabled', false);
+			self.isDisabled = false;
+			self.unlock();
+		},
+	
+		/**
+		 * Completely destroys the control and
+		 * unbinds all event listeners so that it can
+		 * be garbage collected.
+		 */
+		destroy: function() {
+			var self = this;
+			var eventNS = self.eventNS;
+			var revertSettings = self.revertSettings;
+	
+			self.trigger('destroy');
+			self.off();
+			self.$wrapper.remove();
+			self.$dropdown.remove();
+	
+			self.$input
+				.html('')
+				.append(revertSettings.$children)
+				.removeAttr('tabindex')
+				.removeClass('selectized')
+				.attr({tabindex: revertSettings.tabindex})
+				.show();
+	
+			self.$control_input.removeData('grow');
+			self.$input.removeData('selectize');
+	
+			$(window).off(eventNS);
+			$(document).off(eventNS);
+			$(document.body).off(eventNS);
+	
+			delete self.$input[0].selectize;
+		},
+	
+		/**
+		 * A helper method for rendering "item" and
+		 * "option" templates, given the data.
+		 *
+		 * @param {string} templateName
+		 * @param {object} data
+		 * @returns {string}
+		 */
+		render: function(templateName, data) {
+			var value, id, label;
+			var html = '';
+			var cache = false;
+			var self = this;
+			var regex_tag = /^[\t ]*<([a-z][a-z0-9\-_]*(?:\:[a-z][a-z0-9\-_]*)?)/i;
+	
+			if (templateName === 'option' || templateName === 'item') {
+				value = hash_key(data[self.settings.valueField]);
+				cache = !!value;
+			}
+	
+			// pull markup from cache if it exists
+			if (cache) {
+				if (!isset(self.renderCache[templateName])) {
+					self.renderCache[templateName] = {};
+				}
+				if (self.renderCache[templateName].hasOwnProperty(value)) {
+					return self.renderCache[templateName][value];
+				}
+			}
+	
+			// render markup
+			html = self.settings.render[templateName].apply(this, [data, escape_html]);
+	
+			// add mandatory attributes
+			if (templateName === 'option' || templateName === 'option_create') {
+				html = html.replace(regex_tag, '<$1 data-selectable');
+			}
+			if (templateName === 'optgroup') {
+				id = data[self.settings.optgroupValueField] || '';
+				html = html.replace(regex_tag, '<$1 data-group="' + escape_replace(escape_html(id)) + '"');
+			}
+			if (templateName === 'option' || templateName === 'item') {
+				html = html.replace(regex_tag, '<$1 data-value="' + escape_replace(escape_html(value || '')) + '"');
+			}
+	
+			// update cache
+			if (cache) {
+				self.renderCache[templateName][value] = html;
+			}
+	
+			return html;
+		},
+	
+		/**
+		 * Clears the render cache for a template. If
+		 * no template is given, clears all render
+		 * caches.
+		 *
+		 * @param {string} templateName
+		 */
+		clearCache: function(templateName) {
+			var self = this;
+			if (typeof templateName === 'undefined') {
+				self.renderCache = {};
+			} else {
+				delete self.renderCache[templateName];
+			}
+		},
+	
+		/**
+		 * Determines whether or not to display the
+		 * create item prompt, given a user input.
+		 *
+		 * @param {string} input
+		 * @return {boolean}
+		 */
+		canCreate: function(input) {
+			var self = this;
+			if (!self.settings.create) return false;
+			var filter = self.settings.createFilter;
+			return input.length
+				&& (typeof filter !== 'function' || filter.apply(self, [input]))
+				&& (typeof filter !== 'string' || new RegExp(filter).test(input))
+				&& (!(filter instanceof RegExp) || filter.test(input));
+		}
+	
+	});
+	
+	
+	Selectize.count = 0;
+	Selectize.defaults = {
+		plugins: [],
+		delimiter: ',',
+		persist: true,
+		diacritics: true,
+		create: false,
+		createOnBlur: false,
+		createFilter: null,
+		highlight: true,
+		openOnFocus: true,
+		maxOptions: 1000,
+		maxItems: null,
+		hideSelected: null,
+		addPrecedence: false,
+		selectOnTab: false,
+		preload: false,
+		allowEmptyOption: false,
+	
+		scrollDuration: 60,
+		loadThrottle: 300,
+	
+		dataAttr: 'data-data',
+		optgroupField: 'optgroup',
+		valueField: 'value',
+		labelField: 'text',
+		optgroupLabelField: 'label',
+		optgroupValueField: 'value',
+		optgroupOrder: null,
+	
+		sortField: '$order',
+		searchField: ['text'],
+		searchConjunction: 'and',
+	
+		mode: null,
+		wrapperClass: 'selectize-control',
+		inputClass: 'selectize-input',
+		dropdownClass: 'selectize-dropdown',
+		dropdownContentClass: 'selectize-dropdown-content',
+	
+		dropdownParent: null,
+	
+		copyClassesToDropdown: true,
+	
+		/*
+		load            : null, // function(query, callback) { ... }
+		score           : null, // function(search) { ... }
+		onInitialize    : null, // function() { ... }
+		onChange        : null, // function(value) { ... }
+		onItemAdd       : null, // function(value, $item) { ... }
+		onItemRemove    : null, // function(value) { ... }
+		onClear         : null, // function() { ... }
+		onOptionAdd     : null, // function(value, data) { ... }
+		onOptionRemove  : null, // function(value) { ... }
+		onOptionClear   : null, // function() { ... }
+		onDropdownOpen  : null, // function($dropdown) { ... }
+		onDropdownClose : null, // function($dropdown) { ... }
+		onType          : null, // function(str) { ... }
+		onDelete        : null, // function(values) { ... }
+		*/
+	
+		render: {
+			/*
+			item: null,
+			optgroup: null,
+			optgroup_header: null,
+			option: null,
+			option_create: null
+			*/
+		}
+	};
+	
+	
+	$.fn.selectize = function(settings_user) {
+		var defaults             = $.fn.selectize.defaults;
+		var settings             = $.extend({}, defaults, settings_user);
+		var attr_data            = settings.dataAttr;
+		var field_label          = settings.labelField;
+		var field_value          = settings.valueField;
+		var field_optgroup       = settings.optgroupField;
+		var field_optgroup_label = settings.optgroupLabelField;
+		var field_optgroup_value = settings.optgroupValueField;
+	
+		/**
+		 * Initializes selectize from a <input type="text"> element.
+		 *
+		 * @param {object} $input
+		 * @param {object} settings_element
+		 */
+		var init_textbox = function($input, settings_element) {
+			var i, n, values, option, value = $.trim($input.val() || '');
+			if (!settings.allowEmptyOption && !value.length) return;
+	
+			values = value.split(settings.delimiter);
+			for (i = 0, n = values.length; i < n; i++) {
+				option = {};
+				option[field_label] = values[i];
+				option[field_value] = values[i];
+	
+				settings_element.options[values[i]] = option;
+			}
+	
+			settings_element.items = values;
+		};
+	
+		/**
+		 * Initializes selectize from a <select> element.
+		 *
+		 * @param {object} $input
+		 * @param {object} settings_element
+		 */
+		var init_select = function($input, settings_element) {
+			var i, n, tagName, $children, order = 0;
+			var options = settings_element.options;
+	
+			var readData = function($el) {
+				var data = attr_data && $el.attr(attr_data);
+				if (typeof data === 'string' && data.length) {
+					return JSON.parse(data);
+				}
+				return null;
+			};
+	
+			var addOption = function($option, group) {
+				var value, option;
+	
+				$option = $($option);
+	
+				value = $option.attr('value') || '';
+				if (!value.length && !settings.allowEmptyOption) return;
+	
+				// if the option already exists, it's probably been
+				// duplicated in another optgroup. in this case, push
+				// the current group to the "optgroup" property on the
+				// existing option so that it's rendered in both places.
+				if (options.hasOwnProperty(value)) {
+					if (group) {
+						if (!options[value].optgroup) {
+							options[value].optgroup = group;
+						} else if (!$.isArray(options[value].optgroup)) {
+							options[value].optgroup = [options[value].optgroup, group];
+						} else {
+							options[value].optgroup.push(group);
+						}
+					}
+					return;
+				}
+	
+				option                 = readData($option) || {};
+				option[field_label]    = option[field_label] || $option.text();
+				option[field_value]    = option[field_value] || value;
+				option[field_optgroup] = option[field_optgroup] || group;
+	
+				option.$order = ++order;
+				options[value] = option;
+	
+				if ($option.is(':selected')) {
+					settings_element.items.push(value);
+				}
+			};
+	
+			var addGroup = function($optgroup) {
+				var i, n, id, optgroup, $options;
+	
+				$optgroup = $($optgroup);
+				id = $optgroup.attr('label');
+	
+				if (id) {
+					optgroup = readData($optgroup) || {};
+					optgroup[field_optgroup_label] = id;
+					optgroup[field_optgroup_value] = id;
+					settings_element.optgroups[id] = optgroup;
+				}
+	
+				$options = $('option', $optgroup);
+				for (i = 0, n = $options.length; i < n; i++) {
+					addOption($options[i], id);
+				}
+			};
+	
+			settings_element.maxItems = $input.attr('multiple') ? null : 1;
+	
+			$children = $input.children();
+			for (i = 0, n = $children.length; i < n; i++) {
+				tagName = $children[i].tagName.toLowerCase();
+				if (tagName === 'optgroup') {
+					addGroup($children[i]);
+				} else if (tagName === 'option') {
+					addOption($children[i]);
+				}
+			}
+		};
+	
+		return this.each(function() {
+			if (this.selectize) return;
+	
+			var instance;
+			var $input = $(this);
+			var tag_name = this.tagName.toLowerCase();
+			var placeholder = $input.attr('placeholder') || $input.attr('data-placeholder');
+			if (!placeholder && !settings.allowEmptyOption) {
+				placeholder = $input.children('option[value=""]').text();
+			}
+	
+			var settings_element = {
+				'placeholder' : placeholder,
+				'options'     : {},
+				'optgroups'   : {},
+				'items'       : []
+			};
+	
+			if (tag_name === 'select') {
+				init_select($input, settings_element);
+			} else {
+				init_textbox($input, settings_element);
+			}
+	
+			instance = new Selectize($input, $.extend(true, {}, defaults, settings_element, settings_user));
+		});
+	};
+	
+	$.fn.selectize.defaults = Selectize.defaults;
+	
+	
+	Selectize.define('drag_drop', function(options) {
+		if (!$.fn.sortable) throw new Error('The "drag_drop" plugin requires jQuery UI "sortable".');
+		if (this.settings.mode !== 'multi') return;
+		var self = this;
+	
+		self.lock = (function() {
+			var original = self.lock;
+			return function() {
+				var sortable = self.$control.data('sortable');
+				if (sortable) sortable.disable();
+				return original.apply(self, arguments);
+			};
+		})();
+	
+		self.unlock = (function() {
+			var original = self.unlock;
+			return function() {
+				var sortable = self.$control.data('sortable');
+				if (sortable) sortable.enable();
+				return original.apply(self, arguments);
+			};
+		})();
+	
+		self.setup = (function() {
+			var original = self.setup;
+			return function() {
+				original.apply(this, arguments);
+	
+				var $control = self.$control.sortable({
+					items: '[data-value]',
+					forcePlaceholderSize: true,
+					disabled: self.isLocked,
+					start: function(e, ui) {
+						ui.placeholder.css('width', ui.helper.css('width'));
+						$control.css({overflow: 'visible'});
+					},
+					stop: function() {
+						$control.css({overflow: 'hidden'});
+						var active = self.$activeItems ? self.$activeItems.slice() : null;
+						var values = [];
+						$control.children('[data-value]').each(function() {
+							values.push($(this).attr('data-value'));
+						});
+						self.setValue(values);
+						self.setActiveItem(active);
+					}
+				});
+			};
+		})();
+	
+	});
+	
+	Selectize.define('dropdown_header', function(options) {
+		var self = this;
+	
+		options = $.extend({
+			title         : 'Untitled',
+			headerClass   : 'selectize-dropdown-header',
+			titleRowClass : 'selectize-dropdown-header-title',
+			labelClass    : 'selectize-dropdown-header-label',
+			closeClass    : 'selectize-dropdown-header-close',
+	
+			html: function(data) {
+				return (
+					'<div class="' + data.headerClass + '">' +
+						'<div class="' + data.titleRowClass + '">' +
+							'<span class="' + data.labelClass + '">' + data.title + '</span>' +
+							'<a href="javascript:void(0)" class="' + data.closeClass + '">&times;</a>' +
+						'</div>' +
+					'</div>'
+				);
+			}
+		}, options);
+	
+		self.setup = (function() {
+			var original = self.setup;
+			return function() {
+				original.apply(self, arguments);
+				self.$dropdown_header = $(options.html(options));
+				self.$dropdown.prepend(self.$dropdown_header);
+			};
+		})();
+	
+	});
+	
+	Selectize.define('optgroup_columns', function(options) {
+		var self = this;
+	
+		options = $.extend({
+			equalizeWidth  : true,
+			equalizeHeight : true
+		}, options);
+	
+		this.getAdjacentOption = function($option, direction) {
+			var $options = $option.closest('[data-group]').find('[data-selectable]');
+			var index    = $options.index($option) + direction;
+	
+			return index >= 0 && index < $options.length ? $options.eq(index) : $();
+		};
+	
+		this.onKeyDown = (function() {
+			var original = self.onKeyDown;
+			return function(e) {
+				var index, $option, $options, $optgroup;
+	
+				if (this.isOpen && (e.keyCode === KEY_LEFT || e.keyCode === KEY_RIGHT)) {
+					self.ignoreHover = true;
+					$optgroup = this.$activeOption.closest('[data-group]');
+					index = $optgroup.find('[data-selectable]').index(this.$activeOption);
+	
+					if(e.keyCode === KEY_LEFT) {
+						$optgroup = $optgroup.prev('[data-group]');
+					} else {
+						$optgroup = $optgroup.next('[data-group]');
+					}
+	
+					$options = $optgroup.find('[data-selectable]');
+					$option  = $options.eq(Math.min($options.length - 1, index));
+					if ($option.length) {
+						this.setActiveOption($option);
+					}
+					return;
+				}
+	
+				return original.apply(this, arguments);
+			};
+		})();
+	
+		var getScrollbarWidth = function() {
+			var div;
+			var width = getScrollbarWidth.width;
+			var doc = document;
+	
+			if (typeof width === 'undefined') {
+				div = doc.createElement('div');
+				div.innerHTML = '<div style="width:50px;height:50px;position:absolute;left:-50px;top:-50px;overflow:auto;"><div style="width:1px;height:100px;"></div></div>';
+				div = div.firstChild;
+				doc.body.appendChild(div);
+				width = getScrollbarWidth.width = div.offsetWidth - div.clientWidth;
+				doc.body.removeChild(div);
+			}
+			return width;
+		};
+	
+		var equalizeSizes = function() {
+			var i, n, height_max, width, width_last, width_parent, $optgroups;
+	
+			$optgroups = $('[data-group]', self.$dropdown_content);
+			n = $optgroups.length;
+			if (!n || !self.$dropdown_content.width()) return;
+	
+			if (options.equalizeHeight) {
+				height_max = 0;
+				for (i = 0; i < n; i++) {
+					height_max = Math.max(height_max, $optgroups.eq(i).height());
+				}
+				$optgroups.css({height: height_max});
+			}
+	
+			if (options.equalizeWidth) {
+				width_parent = self.$dropdown_content.innerWidth() - getScrollbarWidth();
+				width = Math.round(width_parent / n);
+				$optgroups.css({width: width});
+				if (n > 1) {
+					width_last = width_parent - width * (n - 1);
+					$optgroups.eq(n - 1).css({width: width_last});
+				}
+			}
+		};
+	
+		if (options.equalizeHeight || options.equalizeWidth) {
+			hook.after(this, 'positionDropdown', equalizeSizes);
+			hook.after(this, 'refreshOptions', equalizeSizes);
+		}
+	
+	
+	});
+	
+	Selectize.define('remove_button', function(options) {
+		if (this.settings.mode === 'single') return;
+	
+		options = $.extend({
+			label     : '&times;',
+			title     : 'Remove',
+			className : 'remove',
+			append    : true
+		}, options);
+	
+		var self = this;
+		var html = '<a href="javascript:void(0)" class="' + options.className + '" tabindex="-1" title="' + escape_html(options.title) + '">' + options.label + '</a>';
+	
+		/**
+		 * Appends an element as a child (with raw HTML).
+		 *
+		 * @param {string} html_container
+		 * @param {string} html_element
+		 * @return {string}
+		 */
+		var append = function(html_container, html_element) {
+			var pos = html_container.search(/(<\/[^>]+>\s*)$/);
+			return html_container.substring(0, pos) + html_element + html_container.substring(pos);
+		};
+	
+		this.setup = (function() {
+			var original = self.setup;
+			return function() {
+				// override the item rendering method to add the button to each
+				if (options.append) {
+					var render_item = self.settings.render.item;
+					self.settings.render.item = function(data) {
+						return append(render_item.apply(this, arguments), html);
+					};
+				}
+	
+				original.apply(this, arguments);
+	
+				// add event listener
+				this.$control.on('click', '.' + options.className, function(e) {
+					e.preventDefault();
+					if (self.isLocked) return;
+	
+					var $item = $(e.currentTarget).parent();
+					self.setActiveItem($item);
+					if (self.deleteSelection()) {
+						self.setCaret(self.items.length);
+					}
+				});
+	
+			};
+		})();
+	
+	});
+	
+	Selectize.define('restore_on_backspace', function(options) {
+		var self = this;
+	
+		options.text = options.text || function(option) {
+			return option[this.settings.labelField];
+		};
+	
+		this.onKeyDown = (function(e) {
+			var original = self.onKeyDown;
+			return function(e) {
+				var index, option;
+				if (e.keyCode === KEY_BACKSPACE && this.$control_input.val() === '' && !this.$activeItems.length) {
+					index = this.caretPos - 1;
+					if (index >= 0 && index < this.items.length) {
+						option = this.options[this.items[index]];
+						if (this.deleteSelection(e)) {
+							this.setTextboxValue(options.text.apply(this, [option]));
+							this.refreshOptions(true);
+						}
+						e.preventDefault();
+						return;
+					}
+				}
+				return original.apply(this, arguments);
+			};
+		})();
+	});
+
+	return Selectize;
+}));
+(function(){
+
+    'use strict';
+
+    var
+        /** @const */ FormatOptions = [
+            'decimals',
+            'thousand',
+            'mark',
+            'prefix',
+            'postfix',
+            'encoder',
+            'decoder',
+            'negativeBefore',
+            'negative',
+            'edit',
+            'undo'
+        ];
+
+// General
+
+    // Reverse a string
+    function strReverse ( a ) {
+        return a.split('').reverse().join('');
+    }
+
+    // Check if a string starts with a specified prefix.
+    function strStartsWith ( input, match ) {
+        return input.substring(0, match.length) === match;
+    }
+
+    // Check is a string ends in a specified postfix.
+    function strEndsWith ( input, match ) {
+        return input.slice(-1 * match.length) === match;
+    }
+
+    // Throw an error if formatting options are incompatible.
+    function throwEqualError( F, a, b ) {
+        if ( (F[a] || F[b]) && (F[a] === F[b]) ) {
+            throw new Error(a);
+        }
+    }
+
+    // Check if a number is finite and not NaN
+    function isValidNumber ( input ) {
+        return typeof input === 'number' && isFinite( input );
+    }
+
+    // Provide rounding-accurate toFixed method.
+    function toFixed ( value, decimals ) {
+        var scale = Math.pow(10, decimals);
+        return ( Math.round(value * scale) / scale).toFixed( decimals );
+    }
+
+
+// Formatting
+
+    // Accept a number as input, output formatted string.
+    function formatTo ( decimals, thousand, mark, prefix, postfix, encoder, decoder, negativeBefore, negative, edit, undo, input ) {
+
+        var originalInput = input, inputIsNegative, inputPieces, inputBase, inputDecimals = '', output = '';
+
+        // Apply user encoder to the input.
+        // Expected outcome: number.
+        if ( encoder ) {
+            input = encoder(input);
+        }
+
+        // Stop if no valid number was provided, the number is infinite or NaN.
+        if ( !isValidNumber(input) ) {
+            return false;
+        }
+
+        // Rounding away decimals might cause a value of -0
+        // when using very small ranges. Remove those cases.
+        if ( decimals && parseFloat(input.toFixed(decimals)) === 0 ) {
+            input = 0;
+        }
+
+        // Formatting is done on absolute numbers,
+        // decorated by an optional negative symbol.
+        if ( input < 0 ) {
+            inputIsNegative = true;
+            input = Math.abs(input);
+        }
+
+        // Reduce the number of decimals to the specified option.
+        if ( decimals !== false ) {
+            input = toFixed( input, decimals );
+        }
+
+        // Transform the number into a string, so it can be split.
+        input = input.toString();
+
+        // Break the number on the decimal separator.
+        if ( input.indexOf('.') !== -1 ) {
+            inputPieces = input.split('.');
+
+            inputBase = inputPieces[0];
+
+            if ( mark ) {
+                inputDecimals = mark + inputPieces[1];
+            }
+
+        } else {
+
+            // If it isn't split, the entire number will do.
+            inputBase = input;
+        }
+
+        // Group numbers in sets of three.
+        if ( thousand ) {
+            inputBase = strReverse(inputBase).match(/.{1,3}/g);
+            inputBase = strReverse(inputBase.join( strReverse( thousand ) ));
+        }
+
+        // If the number is negative, prefix with negation symbol.
+        if ( inputIsNegative && negativeBefore ) {
+            output += negativeBefore;
+        }
+
+        // Prefix the number
+        if ( prefix ) {
+            output += prefix;
+        }
+
+        // Normal negative option comes after the prefix. Defaults to '-'.
+        if ( inputIsNegative && negative ) {
+            output += negative;
+        }
+
+        // Append the actual number.
+        output += inputBase;
+        output += inputDecimals;
+
+        // Apply the postfix.
+        if ( postfix ) {
+            output += postfix;
+        }
+
+        // Run the output through a user-specified post-formatter.
+        if ( edit ) {
+            output = edit ( output, originalInput );
+        }
+
+        // All done.
+        return output;
+    }
+
+    // Accept a sting as input, output decoded number.
+    function formatFrom ( decimals, thousand, mark, prefix, postfix, encoder, decoder, negativeBefore, negative, edit, undo, input ) {
+
+        var originalInput = input, inputIsNegative, output = '';
+
+        // User defined pre-decoder. Result must be a non empty string.
+        if ( undo ) {
+            input = undo(input);
+        }
+
+        // Test the input. Can't be empty.
+        if ( !input || typeof input !== 'string' ) {
+            return false;
+        }
+
+        // If the string starts with the negativeBefore value: remove it.
+        // Remember is was there, the number is negative.
+        if ( negativeBefore && strStartsWith(input, negativeBefore) ) {
+            input = input.replace(negativeBefore, '');
+            inputIsNegative = true;
+        }
+
+        // Repeat the same procedure for the prefix.
+        if ( prefix && strStartsWith(input, prefix) ) {
+            input = input.replace(prefix, '');
+        }
+
+        // And again for negative.
+        if ( negative && strStartsWith(input, negative) ) {
+            input = input.replace(negative, '');
+            inputIsNegative = true;
+        }
+
+        // Remove the postfix.
+        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice
+        if ( postfix && strEndsWith(input, postfix) ) {
+            input = input.slice(0, -1 * postfix.length);
+        }
+
+        // Remove the thousand grouping.
+        if ( thousand ) {
+            input = input.split(thousand).join('');
+        }
+
+        // Set the decimal separator back to period.
+        if ( mark ) {
+            input = input.replace(mark, '.');
+        }
+
+        // Prepend the negative symbol.
+        if ( inputIsNegative ) {
+            output += '-';
+        }
+
+        // Add the number
+        output += input;
+
+        // Trim all non-numeric characters (allow '.' and '-');
+        output = output.replace(/[^0-9\.\-.]/g, '');
+
+        // The value contains no parse-able number.
+        if ( output === '' ) {
+            return false;
+        }
+
+        // Covert to number.
+        output = Number(output);
+
+        // Run the user-specified post-decoder.
+        if ( decoder ) {
+            output = decoder(output);
+        }
+
+        // Check is the output is valid, otherwise: return false.
+        if ( !isValidNumber(output) ) {
+            return false;
+        }
+
+        return output;
+    }
+
+
+// Framework
+
+    // Validate formatting options
+    function validate ( inputOptions ) {
+
+        var i, optionName, optionValue,
+            filteredOptions = {};
+
+        for ( i = 0; i < FormatOptions.length; i+=1 ) {
+
+            optionName = FormatOptions[i];
+            optionValue = inputOptions[optionName];
+
+            if ( optionValue === undefined ) {
+
+                // Only default if negativeBefore isn't set.
+                if ( optionName === 'negative' && !filteredOptions.negativeBefore ) {
+                    filteredOptions[optionName] = '-';
+                    // Don't set a default for mark when 'thousand' is set.
+                } else if ( optionName === 'mark' && filteredOptions.thousand !== '.' ) {
+                    filteredOptions[optionName] = '.';
+                } else {
+                    filteredOptions[optionName] = false;
+                }
+
+                // Floating points in JS are stable up to 7 decimals.
+            } else if ( optionName === 'decimals' ) {
+                if ( optionValue >= 0 && optionValue < 8 ) {
+                    filteredOptions[optionName] = optionValue;
+                } else {
+                    throw new Error(optionName);
+                }
+
+                // These options, when provided, must be functions.
+            } else if ( optionName === 'encoder' || optionName === 'decoder' || optionName === 'edit' || optionName === 'undo' ) {
+                if ( typeof optionValue === 'function' ) {
+                    filteredOptions[optionName] = optionValue;
+                } else {
+                    throw new Error(optionName);
+                }
+
+                // Other options are strings.
+            } else {
+
+                if ( typeof optionValue === 'string' ) {
+                    filteredOptions[optionName] = optionValue;
+                } else {
+                    throw new Error(optionName);
+                }
+            }
+        }
+
+        // Some values can't be extracted from a
+        // string if certain combinations are present.
+        throwEqualError(filteredOptions, 'mark', 'thousand');
+        throwEqualError(filteredOptions, 'prefix', 'negative');
+        throwEqualError(filteredOptions, 'prefix', 'negativeBefore');
+
+        return filteredOptions;
+    }
+
+    // Pass all options as function arguments
+    function passAll ( options, method, input ) {
+        var i, args = [];
+
+        // Add all options in order of FormatOptions
+        for ( i = 0; i < FormatOptions.length; i+=1 ) {
+            args.push(options[FormatOptions[i]]);
+        }
+
+        // Append the input, then call the method, presenting all
+        // options as arguments.
+        args.push(input);
+        return method.apply('', args);
+    }
+
+    /** @constructor */
+    function wNumb ( options ) {
+
+        if ( !(this instanceof wNumb) ) {
+            return new wNumb ( options );
+        }
+
+        if ( typeof options !== "object" ) {
+            return;
+        }
+
+        options = validate(options);
+
+        // Call 'formatTo' with proper arguments.
+        this.to = function ( input ) {
+            return passAll(options, formatTo, input);
+        };
+
+        // Call 'formatFrom' with proper arguments.
+        this.from = function ( input ) {
+            return passAll(options, formatFrom, input);
+        };
+    }
+
+    /** @export */
+    window.wNumb = wNumb;
+
+}());
+/*jslint browser: true */
+/*jslint white: true */
+
+
+(function( $ ){
+
+    'use strict';
+
+// Helpers
+
+    // Test in an object is an instance of jQuery or Zepto.
+    function isInstance ( a ) {
+        return a instanceof $ || ( $.zepto && $.zepto.isZ(a) );
+    }
+
+
+// Link types
+
+    function fromPrefix ( target, method ) {
+
+        // If target is a string, a new hidden input will be created.
+        if ( typeof target === 'string' && target.indexOf('-inline-') === 0 ) {
+
+            // By default, use the 'html' method.
+            this.method = method || 'html';
+
+            // Use jQuery to create the element
+            this.target = this.el = $( target.replace('-inline-', '') || '<div/>' );
+
+            return true;
+        }
+    }
+
+    function fromString ( target ) {
+
+        // If the string doesn't begin with '-', which is reserved, add a new hidden input.
+        if ( typeof target === 'string' && target.indexOf('-') !== 0 ) {
+
+            this.method = 'val';
+
+            var element = document.createElement('input');
+            element.name = target;
+            element.type = 'hidden';
+            this.target = this.el = $(element);
+
+            return true;
+        }
+    }
+
+    function fromFunction ( target ) {
+
+        // The target can also be a function, which will be called.
+        if ( typeof target === 'function' ) {
+            this.target = false;
+            this.method = target;
+
+            return true;
+        }
+    }
+
+    function fromInstance ( target, method ) {
+
+        if ( isInstance( target ) && !method ) {
+
+            // If a jQuery/Zepto input element is provided, but no method is set,
+            // the element can assume it needs to respond to 'change'...
+            if ( target.is('input, select, textarea') ) {
+
+                // Default to .val if this is an input element.
+                this.method = 'val';
+
+                // Fire the API changehandler when the target changes.
+                this.target = target.on('change.liblink', this.changeHandler);
+
+            } else {
+
+                this.target = target;
+
+                // If no method is set, and we are not auto-binding an input, default to 'html'.
+                this.method = 'html';
+            }
+
+            return true;
+        }
+    }
+
+    function fromInstanceMethod ( target, method ) {
+
+        // The method must exist on the element.
+        if ( isInstance( target ) &&
+            (typeof method === 'function' ||
+            (typeof method === 'string' && target[method]))
+        ) {
+            this.method = method;
+            this.target = target;
+
+            return true;
+        }
+    }
+
+    var
+        /** @const */
+        creationFunctions = [fromPrefix, fromString, fromFunction, fromInstance, fromInstanceMethod];
+
+
+// Link Instance
+
+    /** @constructor */
+    function Link ( target, method, format ) {
+
+        var that = this, valid = false;
+
+        // Forward calls within scope.
+        this.changeHandler = function ( changeEvent ) {
+            var decodedValue = that.formatInstance.from( $(this).val() );
+
+            // If the value is invalid, stop this event, as well as it's propagation.
+            if ( decodedValue === false || isNaN(decodedValue) ) {
+
+                // Reset the value.
+                $(this).val(that.lastSetValue);
+                return false;
+            }
+
+            that.changeHandlerMethod.call( '', changeEvent, decodedValue );
+        };
+
+        // See if this Link needs individual targets based on its usage.
+        // If so, return the element that needs to be copied by the
+        // implementing interface.
+        // Default the element to false.
+        this.el = false;
+
+        // Store the formatter, or use the default.
+        this.formatInstance = format;
+
+        // Try all Link types.
+        /*jslint unparam: true*/
+        $.each(creationFunctions, function(i, fn){
+            valid = fn.call(that, target, method);
+            return !valid;
+        });
+        /*jslint unparam: false*/
+
+        // Nothing matched, throw error.
+        if ( !valid ) {
+            throw new RangeError("(Link) Invalid Link.");
+        }
+    }
+
+    // Provides external items with the object value.
+    Link.prototype.set = function ( value ) {
+
+        // Ignore the value, so only the passed-on arguments remain.
+        var args = Array.prototype.slice.call( arguments ),
+            additionalArgs = args.slice(1);
+
+        // Store some values. The actual, numerical value,
+        // the formatted value and the parameters for use in 'resetValue'.
+        // Slice additionalArgs to break the relation.
+        this.lastSetValue = this.formatInstance.to( value );
+
+        // Prepend the value to the function arguments.
+        additionalArgs.unshift(
+            this.lastSetValue
+        );
+
+        // When target is undefined, the target was a function.
+        // In that case, provided the object as the calling scope.
+        // Branch between writing to a function or an object.
+        ( typeof this.method === 'function' ?
+            this.method :
+            this.target[ this.method ] ).apply( this.target, additionalArgs );
+    };
+
+
+// Developer API
+
+    /** @constructor */
+    function LinkAPI ( origin ) {
+        this.items = [];
+        this.elements = [];
+        this.origin = origin;
+    }
+
+    LinkAPI.prototype.push = function( item, element ) {
+        this.items.push(item);
+
+        // Prevent 'false' elements
+        if ( element ) {
+            this.elements.push(element);
+        }
+    };
+
+    LinkAPI.prototype.reconfirm = function ( flag ) {
+        var i;
+        for ( i = 0; i < this.elements.length; i += 1 ) {
+            this.origin.LinkConfirm(flag, this.elements[i]);
+        }
+    };
+
+    LinkAPI.prototype.remove = function ( flag ) {
+        var i;
+        for ( i = 0; i < this.items.length; i += 1 ) {
+            this.items[i].target.off('.liblink');
+        }
+        for ( i = 0; i < this.elements.length; i += 1 ) {
+            this.elements[i].remove();
+        }
+    };
+
+    LinkAPI.prototype.change = function ( value ) {
+
+        if ( this.origin.LinkIsEmitting ) {
+            return false;
+        }
+
+        this.origin.LinkIsEmitting = true;
+
+        var args = Array.prototype.slice.call( arguments, 1 ), i;
+        args.unshift( value );
+
+        // Write values to serialization Links.
+        // Convert the value to the correct relative representation.
+        for ( i = 0; i < this.items.length; i += 1 ) {
+            this.items[i].set.apply(this.items[i], args);
+        }
+
+        this.origin.LinkIsEmitting = false;
+    };
+
+
+// jQuery plugin
+
+    function binder ( flag, target, method, format ){
+
+        if ( flag === 0 ) {
+            flag = this.LinkDefaultFlag;
+        }
+
+        // Create a list of API's (if it didn't exist yet);
+        if ( !this.linkAPI ) {
+            this.linkAPI = {};
+        }
+
+        // Add an API point.
+        if ( !this.linkAPI[flag] ) {
+            this.linkAPI[flag] = new LinkAPI(this);
+        }
+
+        var linkInstance = new Link ( target, method, format || this.LinkDefaultFormatter );
+
+        // Default the calling scope to the linked object.
+        if ( !linkInstance.target ) {
+            linkInstance.target = $(this);
+        }
+
+        // If the Link requires creation of a new element,
+        // Pass the element and request confirmation to get the changehandler.
+        // Set the method to be called when a Link changes.
+        linkInstance.changeHandlerMethod = this.LinkConfirm( flag, linkInstance.el );
+
+        // Store the linkInstance in the flagged list.
+        this.linkAPI[flag].push( linkInstance, linkInstance.el );
+
+        // Now that Link have been connected, request an update.
+        this.LinkUpdate( flag );
+    }
+
+    /** @export */
+    $.fn.Link = function( flag ){
+
+        var that = this;
+
+        // Delete all linkAPI
+        if ( flag === false ) {
+
+            return that.each(function(){
+
+                // .Link(false) can be called on elements without Links.
+                // When that happens, the objects can't be looped.
+                if ( !this.linkAPI ) {
+                    return;
+                }
+
+                $.map(this.linkAPI, function(api){
+                    api.remove();
+                });
+
+                delete this.linkAPI;
+            });
+        }
+
+        if ( flag === undefined ) {
+
+            flag = 0;
+
+        } else if ( typeof flag !== 'string') {
+
+            throw new Error("Flag must be string.");
+        }
+
+        return {
+            to: function( a, b, c ){
+                return that.each(function(){
+                    binder.call(this, flag, a, b, c);
+                });
+            }
+        };
+    };
+
+}( window.jQuery || window.Zepto ));
+/*! noUiSlider - 7.0.2 - 2014-09-09 09:58:13 */
+
+/*jslint browser: true */
+/*jslint white: true */
+
+
+(function( $ ){
+
+    'use strict';
+
+
+    // Removes duplicates from an array.
+    function unique(array) {
+        return $.grep(array, function(el, index) {
+            return index === $.inArray(el, array);
+        });
+    }
+
+    // Round a value to the closest 'to'.
+    function closest ( value, to ) {
+        return Math.round(value / to) * to;
+    }
+
+    // Checks whether a value is numerical.
+    function isNumeric ( a ) {
+        return typeof a === 'number' && !isNaN( a ) && isFinite( a );
+    }
+
+    // Rounds a number to 7 supported decimals.
+    function accurateNumber( number ) {
+        var p = Math.pow(10, 7);
+        return Number((Math.round(number*p)/p).toFixed(7));
+    }
+
+    // Sets a class and removes it after [duration] ms.
+    function addClassFor ( element, className, duration ) {
+        element.addClass(className);
+        setTimeout(function(){
+            element.removeClass(className);
+        }, duration);
+    }
+
+    // Limits a value to 0 - 100
+    function limit ( a ) {
+        return Math.max(Math.min(a, 100), 0);
+    }
+
+    // Wraps a variable as an array, if it isn't one yet.
+    function asArray ( a ) {
+        return $.isArray(a) ? a : [a];
+    }
+
+
+    var
+    // Cache the document selector;
+        /** @const */
+        doc = $(document),
+    // Make a backup of the original jQuery/Zepto .val() method.
+        /** @const */
+        $val = $.fn.val,
+    // Namespace for binding and unbinding slider events;
+        /** @const */
+        namespace = '.nui',
+    // Determine the events to bind. IE11 implements pointerEvents without
+    // a prefix, which breaks compatibility with the IE10 implementation.
+        /** @const */
+        actions = window.navigator.pointerEnabled ? {
+            start: 'pointerdown',
+            move: 'pointermove',
+            end: 'pointerup'
+        } : window.navigator.msPointerEnabled ? {
+            start: 'MSPointerDown',
+            move: 'MSPointerMove',
+            end: 'MSPointerUp'
+        } : {
+            start: 'mousedown touchstart',
+            move: 'mousemove touchmove',
+            end: 'mouseup touchend'
+        },
+    // Re-usable list of classes;
+        /** @const */
+        Classes = [
+            /*  0 */  'noUi-target'
+            /*  1 */ ,'noUi-base'
+            /*  2 */ ,'noUi-origin'
+            /*  3 */ ,'noUi-handle'
+            /*  4 */ ,'noUi-horizontal'
+            /*  5 */ ,'noUi-vertical'
+            /*  6 */ ,'noUi-background'
+            /*  7 */ ,'noUi-connect'
+            /*  8 */ ,'noUi-ltr'
+            /*  9 */ ,'noUi-rtl'
+            /* 10 */ ,'noUi-dragable'
+            /* 11 */ ,''
+            /* 12 */ ,'noUi-state-drag'
+            /* 13 */ ,''
+            /* 14 */ ,'noUi-state-tap'
+            /* 15 */ ,'noUi-active'
+            /* 16 */ ,''
+            /* 17 */ ,'noUi-stacking'
+        ];
+
+
+// Value calculation
+
+    // Determine the size of a sub-range in relation to a full range.
+    function subRangeRatio ( pa, pb ) {
+        return (100 / (pb - pa));
+    }
+
+    // (percentage) How many percent is this value of this range?
+    function fromPercentage ( range, value ) {
+        return (value * 100) / ( range[1] - range[0] );
+    }
+
+    // (percentage) Where is this value on this range?
+    function toPercentage ( range, value ) {
+        return fromPercentage( range, range[0] < 0 ?
+        value + Math.abs(range[0]) :
+        value - range[0] );
+    }
+
+    // (value) How much is this percentage on this range?
+    function isPercentage ( range, value ) {
+        return ((value * ( range[1] - range[0] )) / 100) + range[0];
+    }
+
+
+// Range conversion
+
+    function getJ ( value, arr ) {
+
+        var j = 1;
+
+        while ( value >= arr[j] ){
+            j += 1;
+        }
+
+        return j;
+    }
+
+    // (percentage) Input a value, find where, on a scale of 0-100, it applies.
+    function toStepping ( xVal, xPct, value ) {
+
+        if ( value >= xVal.slice(-1)[0] ){
+            return 100;
+        }
+
+        var j = getJ( value, xVal ), va, vb, pa, pb;
+
+        va = xVal[j-1];
+        vb = xVal[j];
+        pa = xPct[j-1];
+        pb = xPct[j];
+
+        return pa + (toPercentage([va, vb], value) / subRangeRatio (pa, pb));
+    }
+
+    // (value) Input a percentage, find where it is on the specified range.
+    function fromStepping ( xVal, xPct, value ) {
+
+        // There is no range group that fits 100
+        if ( value >= 100 ){
+            return xVal.slice(-1)[0];
+        }
+
+        var j = getJ( value, xPct ), va, vb, pa, pb;
+
+        va = xVal[j-1];
+        vb = xVal[j];
+        pa = xPct[j-1];
+        pb = xPct[j];
+
+        return isPercentage([va, vb], (value - pa) * subRangeRatio (pa, pb));
+    }
+
+    // (percentage) Get the step that applies at a certain value.
+    function getStep ( xPct, xSteps, snap, value ) {
+
+        if ( value === 100 ) {
+            return value;
+        }
+
+        var j = getJ( value, xPct ), a, b;
+
+        // If 'snap' is set, steps are used as fixed points on the slider.
+        if ( snap ) {
+
+            a = xPct[j-1];
+            b = xPct[j];
+
+            // Find the closest position, a or b.
+            if ((value - a) > ((b-a)/2)){
+                return b;
+            }
+
+            return a;
+        }
+
+        if ( !xSteps[j-1] ){
+            return value;
+        }
+
+        return xPct[j-1] + closest(
+            value - xPct[j-1],
+            xSteps[j-1]
+        );
+    }
+
+
+// Entry parsing
+
+    function handleEntryPoint ( index, value, that ) {
+
+        var percentage;
+
+        // Wrap numerical input in an array.
+        if ( typeof value === "number" ) {
+            value = [value];
+        }
+
+        // Reject any invalid input, by testing whether value is an array.
+        if ( Object.prototype.toString.call( value ) !== '[object Array]' ){
+            throw new Error("noUiSlider: 'range' contains invalid value.");
+        }
+
+        // Covert min/max syntax to 0 and 100.
+        if ( index === 'min' ) {
+            percentage = 0;
+        } else if ( index === 'max' ) {
+            percentage = 100;
+        } else {
+            percentage = parseFloat( index );
+        }
+
+        // Check for correct input.
+        if ( !isNumeric( percentage ) || !isNumeric( value[0] ) ) {
+            throw new Error("noUiSlider: 'range' value isn't numeric.");
+        }
+
+        // Store values.
+        that.xPct.push( percentage );
+        that.xVal.push( value[0] );
+
+        // NaN will evaluate to false too, but to keep
+        // logging clear, set step explicitly. Make sure
+        // not to override the 'step' setting with false.
+        if ( !percentage ) {
+            if ( !isNaN( value[1] ) ) {
+                that.xSteps[0] = value[1];
+            }
+        } else {
+            that.xSteps.push( isNaN(value[1]) ? false : value[1] );
+        }
+    }
+
+    function handleStepPoint ( i, n, that ) {
+
+        // Ignore 'false' stepping.
+        if ( !n ) {
+            return true;
+        }
+
+        // Factor to range ratio
+        that.xSteps[i] = fromPercentage([
+            that.xVal[i]
+            ,that.xVal[i+1]
+        ], n) / subRangeRatio (
+            that.xPct[i],
+            that.xPct[i+1] );
+    }
+
+
+// Interface
+
+    // The interface to Spectrum handles all direction-based
+    // conversions, so the above values are unaware.
+
+    function Spectrum ( entry, snap, direction, singleStep ) {
+
+        this.xPct = [];
+        this.xVal = [];
+        this.xSteps = [ singleStep || false ];
+        this.xNumSteps = [ false ];
+
+        this.snap = snap;
+        this.direction = direction;
+
+        var that = this, index;
+
+        // Loop all entries.
+        for ( index in entry ) {
+            if ( entry.hasOwnProperty(index) ) {
+                handleEntryPoint(index, entry[index], that);
+            }
+        }
+
+        // Store the actual step values.
+        that.xNumSteps = that.xSteps.slice(0);
+
+        for ( index in that.xNumSteps ) {
+            if ( that.xNumSteps.hasOwnProperty(index) ) {
+                handleStepPoint(Number(index), that.xNumSteps[index], that);
+            }
+        }
+    }
+
+    Spectrum.prototype.getMargin = function ( value ) {
+        return this.xPct.length === 2 ? fromPercentage(this.xVal, value) : false;
+    };
+
+    Spectrum.prototype.toStepping = function ( value ) {
+
+        value = toStepping( this.xVal, this.xPct, value );
+
+        // Invert the value if this is a right-to-left slider.
+        if ( this.direction ) {
+            value = 100 - value;
+        }
+
+        return value;
+    };
+
+    Spectrum.prototype.fromStepping = function ( value ) {
+
+        // Invert the value if this is a right-to-left slider.
+        if ( this.direction ) {
+            value = 100 - value;
+        }
+
+        return accurateNumber(fromStepping( this.xVal, this.xPct, value ));
+    };
+
+    Spectrum.prototype.getStep = function ( value ) {
+
+        // Find the proper step for rtl sliders by search in inverse direction.
+        // Fixes issue #262.
+        if ( this.direction ) {
+            value = 100 - value;
+        }
+
+        value = getStep(this.xPct, this.xSteps, this.snap, value );
+
+        if ( this.direction ) {
+            value = 100 - value;
+        }
+
+        return value;
+    };
+
+    Spectrum.prototype.getApplicableStep = function ( value ) {
+
+        // If the value is 100%, return the negative step twice.
+        var j = getJ(value, this.xPct), offset = value === 100 ? 2 : 1;
+        return [this.xNumSteps[j-2], this.xVal[j-offset], this.xNumSteps[j-offset]];
+    };
+
+    // Outside testing
+    Spectrum.prototype.convert = function ( value ) {
+        return this.getStep(this.toStepping(value));
+    };
+
+    /*	Every input option is tested and parsed. This'll prevent
+     endless validation in internal methods. These tests are
+     structured with an item for every option available. An
+     option can be marked as required by setting the 'r' flag.
+     The testing function is provided with three arguments:
+     - The provided value for the option;
+     - A reference to the options object;
+     - The name for the option;
+
+     The testing function returns false when an error is detected,
+     or true when everything is OK. It can also modify the option
+     object, to make sure all values can be correctly looped elsewhere. */
+
+    /** @const */
+    var defaultFormatter = { 'to': function( value ){
+        return value.toFixed(2);
+    }, 'from': Number };
+
+    function testStep ( parsed, entry ) {
+
+        if ( !isNumeric( entry ) ) {
+            throw new Error("noUiSlider: 'step' is not numeric.");
+        }
+
+        // The step option can still be used to set stepping
+        // for linear sliders. Overwritten if set in 'range'.
+        parsed.singleStep = entry;
+    }
+
+    function testRange ( parsed, entry ) {
+
+        // Filter incorrect input.
+        if ( typeof entry !== 'object' || $.isArray(entry) ) {
+            throw new Error("noUiSlider: 'range' is not an object.");
+        }
+
+        // Catch missing start or end.
+        if ( entry.min === undefined || entry.max === undefined ) {
+            throw new Error("noUiSlider: Missing 'min' or 'max' in 'range'.");
+        }
+
+        parsed.spectrum = new Spectrum(entry, parsed.snap, parsed.dir, parsed.singleStep);
+    }
+
+    function testStart ( parsed, entry ) {
+
+        entry = asArray(entry);
+
+        // Validate input. Values aren't tested, as the public .val method
+        // will always provide a valid location.
+        if ( !$.isArray( entry ) || !entry.length || entry.length > 2 ) {
+            throw new Error("noUiSlider: 'start' option is incorrect.");
+        }
+
+        // Store the number of handles.
+        parsed.handles = entry.length;
+
+        // When the slider is initialized, the .val method will
+        // be called with the start options.
+        parsed.start = entry;
+    }
+
+    function testSnap ( parsed, entry ) {
+
+        // Enforce 100% stepping within subranges.
+        parsed.snap = entry;
+
+        if ( typeof entry !== 'boolean' ){
+            throw new Error("noUiSlider: 'snap' option must be a boolean.");
+        }
+    }
+
+    function testAnimate ( parsed, entry ) {
+
+        // Enforce 100% stepping within subranges.
+        parsed.animate = entry;
+
+        if ( typeof entry !== 'boolean' ){
+            throw new Error("noUiSlider: 'animate' option must be a boolean.");
+        }
+    }
+
+    function testConnect ( parsed, entry ) {
+
+        if ( entry === 'lower' && parsed.handles === 1 ) {
+            parsed.connect = 1;
+        } else if ( entry === 'upper' && parsed.handles === 1 ) {
+            parsed.connect = 2;
+        } else if ( entry === true && parsed.handles === 2 ) {
+            parsed.connect = 3;
+        } else if ( entry === false ) {
+            parsed.connect = 0;
+        } else {
+            throw new Error("noUiSlider: 'connect' option doesn't match handle count.");
+        }
+    }
+
+    function testOrientation ( parsed, entry ) {
+
+        // Set orientation to an a numerical value for easy
+        // array selection.
+        switch ( entry ){
+            case 'horizontal':
+                parsed.ort = 0;
+                break;
+            case 'vertical':
+                parsed.ort = 1;
+                break;
+            default:
+                throw new Error("noUiSlider: 'orientation' option is invalid.");
+        }
+    }
+
+    function testMargin ( parsed, entry ) {
+
+        if ( !isNumeric(entry) ){
+            throw new Error("noUiSlider: 'margin' option must be numeric.");
+        }
+
+        parsed.margin = parsed.spectrum.getMargin(entry);
+
+        if ( !parsed.margin ) {
+            throw new Error("noUiSlider: 'margin' option is only supported on linear sliders.");
+        }
+    }
+
+    function testLimit ( parsed, entry ) {
+
+        if ( !isNumeric(entry) ){
+            throw new Error("noUiSlider: 'limit' option must be numeric.");
+        }
+
+        parsed.limit = parsed.spectrum.getMargin(entry);
+
+        if ( !parsed.limit ) {
+            throw new Error("noUiSlider: 'limit' option is only supported on linear sliders.");
+        }
+    }
+
+    function testDirection ( parsed, entry ) {
+
+        // Set direction as a numerical value for easy parsing.
+        // Invert connection for RTL sliders, so that the proper
+        // handles get the connect/background classes.
+        switch ( entry ) {
+            case 'ltr':
+                parsed.dir = 0;
+                break;
+            case 'rtl':
+                parsed.dir = 1;
+                parsed.connect = [0,2,1,3][parsed.connect];
+                break;
+            default:
+                throw new Error("noUiSlider: 'direction' option was not recognized.");
+        }
+    }
+
+    function testBehaviour ( parsed, entry ) {
+
+        // Make sure the input is a string.
+        if ( typeof entry !== 'string' ) {
+            throw new Error("noUiSlider: 'behaviour' must be a string containing options.");
+        }
+
+        // Check if the string contains any keywords.
+        // None are required.
+        var tap = entry.indexOf('tap') >= 0,
+            drag = entry.indexOf('drag') >= 0,
+            fixed = entry.indexOf('fixed') >= 0,
+            snap = entry.indexOf('snap') >= 0;
+
+        parsed.events = {
+            tap: tap || snap,
+            drag: drag,
+            fixed: fixed,
+            snap: snap
+        };
+    }
+
+    function testFormat ( parsed, entry ) {
+
+        parsed.format = entry;
+
+        // Any object with a to and from method is supported.
+        if ( typeof entry.to === 'function' && typeof entry.from === 'function' ) {
+            return true;
+        }
+
+        throw new Error( "noUiSlider: 'format' requires 'to' and 'from' methods.");
+    }
+
+    // Test all developer settings and parse to assumption-safe values.
+    function testOptions ( options ) {
+
+        var parsed = {
+            margin: 0,
+            limit: 0,
+            animate: true,
+            format: defaultFormatter
+        }, tests;
+
+        // Tests are executed in the order they are presented here.
+        tests = {
+            'step': { r: false, t: testStep },
+            'start': { r: true, t: testStart },
+            'connect': { r: true, t: testConnect },
+            'direction': { r: true, t: testDirection },
+            'snap': { r: false, t: testSnap },
+            'animate': { r: false, t: testAnimate },
+            'range': { r: true, t: testRange },
+            'orientation': { r: false, t: testOrientation },
+            'margin': { r: false, t: testMargin },
+            'limit': { r: false, t: testLimit },
+            'behaviour': { r: true, t: testBehaviour },
+            'format': { r: false, t: testFormat }
+        };
+
+        // Set defaults where applicable.
+        options = $.extend({
+            'connect': false,
+            'direction': 'ltr',
+            'behaviour': 'tap',
+            'orientation': 'horizontal'
+        }, options);
+
+        // Run all options through a testing mechanism to ensure correct
+        // input. It should be noted that options might get modified to
+        // be handled properly. E.g. wrapping integers in arrays.
+        $.each( tests, function( name, test ){
+
+            // If the option isn't set, but it is required, throw an error.
+            if ( options[name] === undefined ) {
+
+                if ( test.r ) {
+                    throw new Error("noUiSlider: '" + name + "' is required.");
+                }
+
+                return true;
+            }
+
+            test.t( parsed, options[name] );
+        });
+
+        // Pre-define the styles.
+        parsed.style = parsed.ort ? 'top' : 'left';
+
+        return parsed;
+    }
+
+// Class handling
+
+    // Delimit proposed values for handle positions.
+    function getPositions ( a, b, delimit ) {
+
+        // Add movement to current position.
+        var c = a + b[0], d = a + b[1];
+
+        // Only alter the other position on drag,
+        // not on standard sliding.
+        if ( delimit ) {
+            if ( c < 0 ) {
+                d += Math.abs(c);
+            }
+            if ( d > 100 ) {
+                c -= ( d - 100 );
+            }
+
+            // Limit values to 0 and 100.
+            return [limit(c), limit(d)];
+        }
+
+        return [c,d];
+    }
+
+
+// Event handling
+
+    // Provide a clean event with standardized offset values.
+    function fixEvent ( e ) {
+
+        // Prevent scrolling and panning on touch events, while
+        // attempting to slide. The tap event also depends on this.
+        e.preventDefault();
+
+        // Filter the event to register the type, which can be
+        // touch, mouse or pointer. Offset changes need to be
+        // made on an event specific basis.
+        var  touch = e.type.indexOf('touch') === 0
+            ,mouse = e.type.indexOf('mouse') === 0
+            ,pointer = e.type.indexOf('pointer') === 0
+            ,x,y, event = e;
+
+        // IE10 implemented pointer events with a prefix;
+        if ( e.type.indexOf('MSPointer') === 0 ) {
+            pointer = true;
+        }
+
+        // Get the originalEvent, if the event has been wrapped
+        // by jQuery. Zepto doesn't wrap the event.
+        if ( e.originalEvent ) {
+            e = e.originalEvent;
+        }
+
+        if ( touch ) {
+            // noUiSlider supports one movement at a time,
+            // so we can select the first 'changedTouch'.
+            x = e.changedTouches[0].pageX;
+            y = e.changedTouches[0].pageY;
+        }
+
+        if ( mouse || pointer ) {
+
+            // Polyfill the pageXOffset and pageYOffset
+            // variables for IE7 and IE8;
+            if( !pointer && window.pageXOffset === undefined ){
+                window.pageXOffset = document.documentElement.scrollLeft;
+                window.pageYOffset = document.documentElement.scrollTop;
+            }
+
+            x = e.clientX + window.pageXOffset;
+            y = e.clientY + window.pageYOffset;
+        }
+
+        event.points = [x, y];
+        event.cursor = mouse;
+
+        return event;
+    }
+
+
+// DOM additions
+
+    // Append a handle to the base.
+    function addHandle ( direction, index ) {
+
+        var handle = $('<div><div/></div>').addClass( Classes[2] ),
+            additions = [ '-lower', '-upper' ];
+
+        if ( direction ) {
+            additions.reverse();
+        }
+
+        handle.children().addClass(
+            Classes[3] + " " + Classes[3]+additions[index]
+        );
+
+        return handle;
+    }
+
+    // Add the proper connection classes.
+    function addConnection ( connect, target, handles ) {
+
+        // Apply the required connection classes to the elements
+        // that need them. Some classes are made up for several
+        // segments listed in the class list, to allow easy
+        // renaming and provide a minor compression benefit.
+        switch ( connect ) {
+            case 1:	target.addClass( Classes[7] );
+                handles[0].addClass( Classes[6] );
+                break;
+            case 3: handles[1].addClass( Classes[6] );
+            /* falls through */
+            case 2: handles[0].addClass( Classes[7] );
+            /* falls through */
+            case 0: target.addClass(Classes[6]);
+                break;
+        }
+    }
+
+    // Add handles to the slider base.
+    function addHandles ( nrHandles, direction, base ) {
+
+        var index, handles = [];
+
+        // Append handles.
+        for ( index = 0; index < nrHandles; index += 1 ) {
+
+            // Keep a list of all added handles.
+            handles.push( addHandle( direction, index ).appendTo(base) );
+        }
+
+        return handles;
+    }
+
+    // Initialize a single slider.
+    function addSlider ( direction, orientation, target ) {
+
+        // Apply classes and data to the target.
+        target.addClass([
+            Classes[0],
+            Classes[8 + direction],
+            Classes[4 + orientation]
+        ].join(' '));
+
+        return $('<div/>').appendTo(target).addClass( Classes[1] );
+    }
+
+    function closure ( target, options, originalOptions ){
+
+// Internal variables
+
+        // All variables local to 'closure' are marked $.
+        var $Target = $(target),
+            $Locations = [-1, -1],
+            $Base,
+            $Handles,
+            $Spectrum = options.spectrum,
+            $Values = [],
+        // libLink. For rtl sliders, 'lower' and 'upper' should not be inverted
+        // for one-handle sliders, so trim 'upper' it that case.
+            triggerPos = ['lower', 'upper'].slice(0, options.handles);
+
+        // Invert the libLink connection for rtl sliders.
+        if ( options.dir ) {
+            triggerPos.reverse();
+        }
+
+// Helpers
+
+        // Shorthand for base dimensions.
+        function baseSize ( ) {
+            return $Base[['width', 'height'][options.ort]]();
+        }
+
+        // External event handling
+        function fireEvents ( events ) {
+
+            // Use the external api to get the values.
+            // Wrap the values in an array, as .trigger takes
+            // only one additional argument.
+            var index, values = [ $Target.val() ];
+
+            for ( index = 0; index < events.length; index += 1 ){
+                $Target.trigger(events[index], values);
+            }
+        }
+
+        // Returns the input array, respecting the slider direction configuration.
+        function inSliderOrder ( values ) {
+
+            // If only one handle is used, return a single value.
+            if ( values.length === 1 ){
+                return values[0];
+            }
+
+            if ( options.dir ) {
+                return values.reverse();
+            }
+
+            return values;
+        }
+
+// libLink integration
+
+        // Create a new function which calls .val on input change.
+        function createChangeHandler ( trigger ) {
+            return function ( ignore, value ){
+                // Determine which array position to 'null' based on 'trigger'.
+                $Target.val( [ trigger ? null : value, trigger ? value : null ], true );
+            };
+        }
+
+        // Called by libLink when it wants a set of links updated.
+        function linkUpdate ( flag ) {
+
+            var trigger = $.inArray(flag, triggerPos);
+
+            // The API might not have been set yet.
+            if ( $Target[0].linkAPI && $Target[0].linkAPI[flag] ) {
+                $Target[0].linkAPI[flag].change(
+                    $Values[trigger],
+                    $Handles[trigger].children(),
+                    $Target
+                );
+            }
+        }
+
+        // Called by libLink to append an element to the slider.
+        function linkConfirm ( flag, element ) {
+
+            // Find the trigger for the passed flag.
+            var trigger = $.inArray(flag, triggerPos);
+
+            // If set, append the element to the handle it belongs to.
+            if ( element ) {
+                element.appendTo( $Handles[trigger].children() );
+            }
+
+            // The public API is reversed for rtl sliders, so the changeHandler
+            // should not be aware of the inverted trigger positions.
+            if ( options.dir ) {
+                trigger = trigger === 1 ? 0 : 1;
+            }
+
+            return createChangeHandler( trigger );
+        }
+
+        // Place elements back on the slider.
+        function reAppendLink ( ) {
+
+            var i, flag;
+
+            // The API keeps a list of elements: we can re-append them on rebuild.
+            for ( i = 0; i < triggerPos.length; i += 1 ) {
+                if ( this.linkAPI && this.linkAPI[(flag = triggerPos[i])] ) {
+                    this.linkAPI[flag].reconfirm(flag);
+                }
+            }
+        }
+
+        target.LinkUpdate = linkUpdate;
+        target.LinkConfirm = linkConfirm;
+        target.LinkDefaultFormatter = options.format;
+        target.LinkDefaultFlag = 'lower';
+
+        target.reappend = reAppendLink;
+
+
+        // Handler for attaching events trough a proxy.
+        function attach ( events, element, callback, data ) {
+
+            // This function can be used to 'filter' events to the slider.
+
+            // Add the noUiSlider namespace to all events.
+            events = events.replace( /\s/g, namespace + ' ' ) + namespace;
+
+            // Bind a closure on the target.
+            return element.on( events, function( e ){
+
+                // jQuery and Zepto (1) handle unset attributes differently,
+                // but always falsy; #208
+                if ( !!$Target.attr('disabled') ) {
+                    return false;
+                }
+
+                // Stop if an active 'tap' transition is taking place.
+                if ( $Target.hasClass( Classes[14] ) ) {
+                    return false;
+                }
+
+                e = fixEvent(e);
+                e.calcPoint = e.points[ options.ort ];
+
+                // Call the event handler with the event [ and additional data ].
+                callback ( e, data );
+            });
+        }
+
+        // Handle movement on document for handle and range drag.
+        function move ( event, data ) {
+
+            var handles = data.handles || $Handles, positions, state = false,
+                proposal = ((event.calcPoint - data.start) * 100) / baseSize(),
+                h = handles[0][0] !== $Handles[0][0] ? 1 : 0;
+
+            // Calculate relative positions for the handles.
+            positions = getPositions( proposal, data.positions, handles.length > 1);
+
+            state = setHandle ( handles[0], positions[h], handles.length === 1 );
+
+            if ( handles.length > 1 ) {
+                state = setHandle ( handles[1], positions[h?0:1], false ) || state;
+            }
+
+            // Fire the 'slide' event if any handle moved.
+            if ( state ) {
+                fireEvents(['slide']);
+            }
+        }
+
+        // Unbind move events on document, call callbacks.
+        function end ( event ) {
+
+            // The handle is no longer active, so remove the class.
+            $('.' + Classes[15]).removeClass(Classes[15]);
+
+            // Remove cursor styles and text-selection events bound to the body.
+            if ( event.cursor ) {
+                $('body').css('cursor', '').off( namespace );
+            }
+
+            // Unbind the move and end events, which are added on 'start'.
+            doc.off( namespace );
+
+            // Remove dragging class.
+            $Target.removeClass(Classes[12]);
+
+            // Fire the change and set events.
+            fireEvents(['set', 'change']);
+        }
+
+        // Bind move events on document.
+        function start ( event, data ) {
+
+            // Mark the handle as 'active' so it can be styled.
+            if( data.handles.length === 1 ) {
+                data.handles[0].children().addClass(Classes[15]);
+            }
+
+            // A drag should never propagate up to the 'tap' event.
+            event.stopPropagation();
+
+            // Attach the move event.
+            attach ( actions.move, doc, move, {
+                start: event.calcPoint,
+                handles: data.handles,
+                positions: [
+                    $Locations[0],
+                    $Locations[$Handles.length - 1]
+                ]
+            });
+
+            // Unbind all movement when the drag ends.
+            attach ( actions.end, doc, end, null );
+
+            // Text selection isn't an issue on touch devices,
+            // so adding cursor styles can be skipped.
+            if ( event.cursor ) {
+
+                // Prevent the 'I' cursor and extend the range-drag cursor.
+                $('body').css('cursor', $(event.target).css('cursor'));
+
+                // Mark the target with a dragging state.
+                if ( $Handles.length > 1 ) {
+                    $Target.addClass(Classes[12]);
+                }
+
+                // Prevent text selection when dragging the handles.
+                $('body').on('selectstart' + namespace, false);
+            }
+        }
+
+        // Move closest handle to tapped location.
+        function tap ( event ) {
+
+            var location = event.calcPoint, total = 0, to;
+
+            // The tap event shouldn't propagate up and cause 'edge' to run.
+            event.stopPropagation();
+
+            // Add up the handle offsets.
+            $.each( $Handles, function(){
+                total += this.offset()[ options.style ];
+            });
+
+            // Find the handle closest to the tapped position.
+            total = ( location < total/2 || $Handles.length === 1 ) ? 0 : 1;
+
+            location -= $Base.offset()[ options.style ];
+
+            // Calculate the new position.
+            to = ( location * 100 ) / baseSize();
+
+            if ( !options.events.snap ) {
+                // Flag the slider as it is now in a transitional state.
+                // Transition takes 300 ms, so re-enable the slider afterwards.
+                addClassFor( $Target, Classes[14], 300 );
+            }
+
+            // Find the closest handle and calculate the tapped point.
+            // The set handle to the new position.
+            setHandle( $Handles[total], to );
+
+            fireEvents(['slide', 'set', 'change']);
+
+            if ( options.events.snap ) {
+                start(event, { handles: [$Handles[total]] });
+            }
+        }
+
+        // Attach events to several slider parts.
+        function events ( behaviour ) {
+
+            var i, drag;
+
+            // Attach the standard drag event to the handles.
+            if ( !behaviour.fixed ) {
+
+                for ( i = 0; i < $Handles.length; i += 1 ) {
+
+                    // These events are only bound to the visual handle
+                    // element, not the 'real' origin element.
+                    attach ( actions.start, $Handles[i].children(), start, {
+                        handles: [ $Handles[i] ]
+                    });
+                }
+            }
+
+            // Attach the tap event to the slider base.
+            if ( behaviour.tap ) {
+
+                attach ( actions.start, $Base, tap, {
+                    handles: $Handles
+                });
+            }
+
+            // Make the range dragable.
+            if ( behaviour.drag ){
+
+                drag = $Base.find( '.' + Classes[7] ).addClass( Classes[10] );
+
+                // When the range is fixed, the entire range can
+                // be dragged by the handles. The handle in the first
+                // origin will propagate the start event upward,
+                // but it needs to be bound manually on the other.
+                if ( behaviour.fixed ) {
+                    drag = drag.add($Base.children().not( drag ).children());
+                }
+
+                attach ( actions.start, drag, start, {
+                    handles: $Handles
+                });
+            }
+        }
+
+
+        // Test suggested values and apply margin, step.
+        function setHandle ( handle, to, noLimitOption ) {
+
+            var trigger = handle[0] !== $Handles[0][0] ? 1 : 0,
+                lowerMargin = $Locations[0] + options.margin,
+                upperMargin = $Locations[1] - options.margin,
+                lowerLimit = $Locations[0] + options.limit,
+                upperLimit = $Locations[1] - options.limit;
+
+            // For sliders with multiple handles,
+            // limit movement to the other handle.
+            // Apply the margin option by adding it to the handle positions.
+            if ( $Handles.length > 1 ) {
+                to = trigger ? Math.max( to, lowerMargin ) : Math.min( to, upperMargin );
+            }
+
+            // The limit option has the opposite effect, limiting handles to a
+            // maximum distance from another. Limit must be > 0, as otherwise
+            // handles would be unmoveable. 'noLimitOption' is set to 'false'
+            // for the .val() method, except for pass 4/4.
+            if ( noLimitOption !== false && options.limit && $Handles.length > 1 ) {
+                to = trigger ? Math.min ( to, lowerLimit ) : Math.max( to, upperLimit );
+            }
+
+            // Handle the step option.
+            to = $Spectrum.getStep( to );
+
+            // Limit to 0/100 for .val input, trim anything beyond 7 digits, as
+            // JavaScript has some issues in its floating point implementation.
+            to = limit(parseFloat(to.toFixed(7)));
+
+            // Return false if handle can't move.
+            if ( to === $Locations[trigger] ) {
+                return false;
+            }
+
+            // Set the handle to the new position.
+            handle.css( options.style, to + '%' );
+
+            // Force proper handle stacking
+            if ( handle.is(':first-child') ) {
+                handle.toggleClass(Classes[17], to > 50 );
+            }
+
+            // Update locations.
+            $Locations[trigger] = to;
+
+            // Convert the value to the slider stepping/range.
+            $Values[trigger] = $Spectrum.fromStepping( to );
+
+            linkUpdate(triggerPos[trigger]);
+
+            return true;
+        }
+
+        // Loop values from value method and apply them.
+        function setValues ( count, values ) {
+
+            var i, trigger, to;
+
+            // With the limit option, we'll need another limiting pass.
+            if ( options.limit ) {
+                count += 1;
+            }
+
+            // If there are multiple handles to be set run the setting
+            // mechanism twice for the first handle, to make sure it
+            // can be bounced of the second one properly.
+            for ( i = 0; i < count; i += 1 ) {
+
+                trigger = i%2;
+
+                // Get the current argument from the array.
+                to = values[trigger];
+
+                // Setting with null indicates an 'ignore'.
+                // Inputting 'false' is invalid.
+                if ( to !== null && to !== false ) {
+
+                    // If a formatted number was passed, attemt to decode it.
+                    if ( typeof to === 'number' ) {
+                        to = String(to);
+                    }
+
+                    to = options.format.from( to );
+
+                    // Request an update for all links if the value was invalid.
+                    // Do so too if setting the handle fails.
+                    if ( to === false || isNaN(to) || setHandle( $Handles[trigger], $Spectrum.toStepping( to ), i === (3 - options.dir) ) === false ) {
+
+                        linkUpdate(triggerPos[trigger]);
+                    }
+                }
+            }
+        }
+
+        // Set the slider value.
+        function valueSet ( input ) {
+
+            // LibLink: don't accept new values when currently emitting changes.
+            if ( $Target[0].LinkIsEmitting ) {
+                return this;
+            }
+
+            var count, values = asArray( input );
+
+            // The RTL settings is implemented by reversing the front-end,
+            // internal mechanisms are the same.
+            if ( options.dir && options.handles > 1 ) {
+                values.reverse();
+            }
+
+            // Animation is optional.
+            // Make sure the initial values where set before using animated
+            // placement. (no report, unit testing);
+            if ( options.animate && $Locations[0] !== -1 ) {
+                addClassFor( $Target, Classes[14], 300 );
+            }
+
+            // Determine how often to set the handles.
+            count = $Handles.length > 1 ? 3 : 1;
+
+            if ( values.length === 1 ) {
+                count = 1;
+            }
+
+            setValues ( count, values );
+
+            // Fire the 'set' event. As of noUiSlider 7,
+            // this is no longer optional.
+            fireEvents(['set']);
+
+            return this;
+        }
+
+        // Get the slider value.
+        function valueGet ( ) {
+
+            var i, retour = [];
+
+            // Get the value from all handles.
+            for ( i = 0; i < options.handles; i += 1 ){
+                retour[i] = options.format.to( $Values[i] );
+            }
+
+            return inSliderOrder( retour );
+        }
+
+        // Destroy the slider and unbind all events.
+        function destroyTarget ( ) {
+
+            // Unbind events on the slider, remove all classes and child elements.
+            $(this).off(namespace)
+                .removeClass(Classes.join(' '))
+                .empty();
+
+            delete this.LinkUpdate;
+            delete this.LinkConfirm;
+            delete this.LinkDefaultFormatter;
+            delete this.LinkDefaultFlag;
+            delete this.reappend;
+            delete this.vGet;
+            delete this.vSet;
+            delete this.getCurrentStep;
+            delete this.getInfo;
+            delete this.destroy;
+
+            // Return the original options from the closure.
+            return originalOptions;
+        }
+
+        // Get the current step size for the slider.
+        function getCurrentStep ( ) {
+
+            // Check all locations, map them to their stepping point.
+            // Get the step point, then find it in the input list.
+            var retour = $.map($Locations, function( location, index ){
+
+                var step = $Spectrum.getApplicableStep( location ),
+                    value = $Values[index],
+                    increment = step[2],
+                    decrement = (value - step[2]) >= step[1] ? step[2] : step[0];
+
+                return [[decrement, increment]];
+            });
+
+            // Return values in the proper order.
+            return inSliderOrder( retour );
+        }
+
+        // Get the original set of options.
+        function getOriginalOptions ( ) {
+            return originalOptions;
+        }
+
+
+// Initialize slider
+
+        // Throw an error if the slider was already initialized.
+        if ( $Target.hasClass(Classes[0]) ) {
+            throw new Error('Slider was already initialized.');
+        }
+
+        // Create the base element, initialise HTML and set classes.
+        // Add handles and links.
+        $Base = addSlider( options.dir, options.ort, $Target );
+        $Handles = addHandles( options.handles, options.dir, $Base );
+
+        // Set the connect classes.
+        addConnection ( options.connect, $Target, $Handles );
+
+        // Attach user events.
+        events( options.events );
+
+// Methods
+
+        target.vSet = valueSet;
+        target.vGet = valueGet;
+        target.destroy = destroyTarget;
+
+        target.getCurrentStep = getCurrentStep;
+        target.getOriginalOptions = getOriginalOptions;
+
+        target.getInfo = function(){
+            return [
+                $Spectrum,
+                options.style,
+                options.ort
+            ];
+        };
+
+        // Use the public value method to set the start values.
+        $Target.val( options.start );
+
+    }
+
+
+    // Run the standard initializer
+    function initialize ( originalOptions ) {
+
+        // Throw error if group is empty.
+        if ( !this.length ){
+            throw new Error("noUiSlider: Can't initialize slider on empty selection.");
+        }
+
+        // Test the options once, not for every slider.
+        var options = testOptions( originalOptions, this );
+
+        // Loop all items, and provide a new closed-scope environment.
+        return this.each(function(){
+            closure(this, options, originalOptions);
+        });
+    }
+
+    // Destroy the slider, then re-enter initialization.
+    function rebuild ( options ) {
+
+        return this.each(function(){
+
+            // The rebuild flag can be used if the slider wasn't initialized yet.
+            if ( !this.destroy ) {
+                $(this).noUiSlider( options );
+                return;
+            }
+
+            // Get the current values from the slider,
+            // including the initialization options.
+            var values = $(this).val(), originalOptions = this.destroy(),
+
+            // Extend the previous options with the newly provided ones.
+                newOptions = $.extend( {}, originalOptions, options );
+
+            // Run the standard initializer.
+            $(this).noUiSlider( newOptions );
+
+            // Place Link elements back.
+            this.reappend();
+
+            // If the start option hasn't changed,
+            // reset the previous values.
+            if ( originalOptions.start === newOptions.start ) {
+                $(this).val(values);
+            }
+        });
+    }
+
+    // Access the internal getting and setting methods based on argument count.
+    function value ( ) {
+        return this[0][ !arguments.length ? 'vGet' : 'vSet' ].apply(this[0], arguments);
+    }
+
+    // Override the .val() method. Test every element. Is it a slider? Go to
+    // the slider value handling. No? Use the standard method.
+    // Note how $.fn.val expects 'this' to be an instance of $. For convenience,
+    // the above 'value' function does too.
+    $.fn.val = function ( ) {
+
+        // this === instanceof $
+
+        function valMethod( a ){
+            return a.hasClass(Classes[0]) ? value : $val;
+        }
+
+        var args = arguments,
+            first = $(this[0]);
+
+        if ( !arguments.length ) {
+            return valMethod(first).call(first);
+        }
+
+        // Return the set so it remains chainable
+        return this.each(function(){
+            valMethod($(this)).apply($(this), args);
+        });
+    };
+
+// Extend jQuery/Zepto with the noUiSlider method.
+    $.fn.noUiSlider = function ( options, rebuildFlag ) {
+
+        switch ( options ) {
+            case 'step': return this[0].getCurrentStep();
+            case 'options': return this[0].getOriginalOptions();
+        }
+
+        return ( rebuildFlag ? rebuild : initialize ).call(this, options);
+    };
+
+    function getGroup ( $Spectrum, mode, values, stepped ) {
+
+        // Use the range.
+        if ( mode === 'range' || mode === 'steps' ) {
+            return $Spectrum.xVal;
+        }
+
+        if ( mode === 'count' ) {
+
+            // Divide 0 - 100 in 'count' parts.
+            var spread = ( 100 / (values-1) ), v, i = 0;
+            values = [];
+
+            // List these parts and have them handled as 'positions'.
+            while ((v=i++*spread) <= 100 ) {
+                values.push(v);
+            }
+
+            mode = 'positions';
+        }
+
+        if ( mode === 'positions' ) {
+
+            // Map all percentages to on-range values.
+            return $.map(values, function( value ){
+                return $Spectrum.fromStepping( stepped ? $Spectrum.getStep( value ) : value );
+            });
+        }
+
+        if ( mode === 'values' ) {
+
+            // If the value must be stepped, it needs to be converted to a percentage first.
+            if ( stepped ) {
+
+                return $.map(values, function( value ){
+
+                    // Convert to percentage, apply step, return to value.
+                    return $Spectrum.fromStepping( $Spectrum.getStep( $Spectrum.toStepping( value ) ) );
+                });
+
+            }
+
+            // Otherwise, we can simply use the values.
+            return values;
+        }
+    }
+
+    function generateSpread ( $Spectrum, density, mode, group ) {
+
+        var originalSpectrumDirection = $Spectrum.direction,
+            indexes = {},
+            firstInRange = $Spectrum.xVal[0],
+            lastInRange = $Spectrum.xVal[$Spectrum.xVal.length-1],
+            ignoreFirst = false,
+            ignoreLast = false,
+            prevPct = 0;
+
+        // This function loops the spectrum in an ltr linear fashion,
+        // while the toStepping method is direction aware. Trick it into
+        // believing it is ltr.
+        $Spectrum.direction = 0;
+
+        // Create a copy of the group, sort it and filter away all duplicates.
+        group = unique(group.slice().sort(function(a, b){ return a - b; }));
+
+        // Make sure the range starts with the first element.
+        if ( group[0] !== firstInRange ) {
+            group.unshift(firstInRange);
+            ignoreFirst = true;
+        }
+
+        // Likewise for the last one.
+        if ( group[group.length - 1] !== lastInRange ) {
+            group.push(lastInRange);
+            ignoreLast = true;
+        }
+
+        $.each(group, function ( index ) {
+
+            // Get the current step and the lower + upper positions.
+            var step, i, q,
+                low = group[index],
+                high = group[index+1],
+                newPct, pctDifference, pctPos, type,
+                steps, realSteps, stepsize;
+
+            // When using 'steps' mode, use the provided steps.
+            // Otherwise, we'll step on to the next subrange.
+            if ( mode === 'steps' ) {
+                step = $Spectrum.xNumSteps[ index ];
+            }
+
+            // Default to a 'full' step.
+            if ( !step ) {
+                step = high-low;
+            }
+
+            // Low can be 0, so test for false. If high is undefined,
+            // we are at the last subrange. Index 0 is already handled.
+            if ( low === false || high === undefined ) {
+                return;
+            }
+
+            // Find all steps in the subrange.
+            for ( i = low; i <= high; i += step ) {
+
+                // Get the percentage value for the current step,
+                // calculate the size for the subrange.
+                newPct = $Spectrum.toStepping( i );
+                pctDifference = newPct - prevPct;
+
+                steps = pctDifference / density;
+                realSteps = Math.round(steps);
+
+                // This ratio represents the ammount of percentage-space a point indicates.
+                // For a density 1 the points/percentage = 1. For density 2, that percentage needs to be re-devided.
+                // Round the percentage offset to an even number, then divide by two
+                // to spread the offset on both sides of the range.
+                stepsize = pctDifference/realSteps;
+
+                // Divide all points evenly, adding the correct number to this subrange.
+                // Run up to <= so that 100% gets a point, event if ignoreLast is set.
+                for ( q = 1; q <= realSteps; q += 1 ) {
+
+                    // The ratio between the rounded value and the actual size might be ~1% off.
+                    // Correct the percentage offset by the number of points
+                    // per subrange. density = 1 will result in 100 points on the
+                    // full range, 2 for 50, 4 for 25, etc.
+                    pctPos = prevPct + ( q * stepsize );
+                    indexes[pctPos.toFixed(5)] = ['x', 0];
+                }
+
+                // Determine the point type.
+                type = ($.inArray(i, group) > -1) ? 1 : ( mode === 'steps' ? 2 : 0 );
+
+                // Enforce the 'ignoreFirst' option by overwriting the type for 0.
+                if ( !index && ignoreFirst && !low ) {
+                    type = 0;
+                }
+
+                if ( !(i === high && ignoreLast)) {
+                    // Mark the 'type' of this point. 0 = plain, 1 = real value, 2 = step value.
+                    indexes[newPct.toFixed(5)] = [i, type];
+                }
+
+                // Update the percentage count.
+                prevPct = newPct;
+            }
+        });
+
+        // Reset the spectrum.
+        $Spectrum.direction = originalSpectrumDirection;
+
+        return indexes;
+    }
+
+    function addMarking ( CSSstyle, orientation, direction, spread, filterFunc, formatter ) {
+
+        var style = ['horizontal', 'vertical'][orientation],
+            element = $('<div/>');
+
+        element.addClass('noUi-pips noUi-pips-'+style);
+
+        function getSize( type, value ){
+            return [ '-normal', '-large', '-sub' ][(type&&filterFunc) ? filterFunc(value, type) : type];
+        }
+        function getTags( offset, source, values ) {
+            return 'class="' + source + ' ' +
+            source + '-' + style + ' ' +
+            source + getSize(values[1], values[0]) +
+            '" style="' + CSSstyle + ': ' + offset + '%"';
+        }
+        function addSpread ( offset, values ){
+
+            if ( direction ) {
+                offset = 100 - offset;
+            }
+
+            // Add a marker for every point
+            element.append('<div '+getTags(offset, 'noUi-marker', values)+'></div>');
+
+            // Values are only appended for points marked '1' or '2'.
+            if ( values[1] ) {
+                element.append('<div '+getTags(offset, 'noUi-value', values)+'>' + formatter.to(values[0]) + '</div>');
+            }
+        }
+
+        // Append all points.
+        $.each(spread, addSpread);
+
+        return element;
+    }
+
+    $.fn.noUiSlider_pips = function ( grid ) {
+
+        var mode = grid.mode,
+            density = grid.density || 1,
+            filter = grid.filter || false,
+            values = grid.values || false,
+            format = grid.format || {
+                    to: Math.round
+                },
+            stepped = grid.stepped || false;
+
+        return this.each(function(){
+
+            var info = this.getInfo(),
+                group = getGroup( info[0], mode, values, stepped ),
+                spread = generateSpread( info[0], density, mode, group );
+
+            return $(this).append(addMarking(
+                info[1],
+                info[2],
+                info[0].direction,
+                spread,
+                filter,
+                format
+            ));
+        });
+    };
+
+}( window.jQuery || window.Zepto ));
 
 
 
