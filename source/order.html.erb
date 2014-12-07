@@ -4,7 +4,7 @@ title: Order Form
 
 <div class="col-xs-6 col-xs-offset-3">
 
-  <form action="#" class="form-box">
+  <form action="#" class="form-box" id="order-form">
 
     <div class="header text-center">
       <h2>Find the best product</h2>
@@ -44,21 +44,41 @@ title: Order Form
 
     $(function() {
 
+      function filter500( value, type ){
+        return value % 25 ? 2 : 0;
+      }
+
       $('#price-slider').noUiSlider({
         start: [ 0, 500 ],
         snap: true,
         connect: true,
         range: {
           'min': 0,
-          '20%': 50,
-          '40%': 100,
-          '60%': 150,
-          '80%': 200,
-          'max': 250
-        }
+          '5%':  10,
+          '10%': 20,
+          '15%': 30,
+          '20%': 40,
+          '25%': 50,
+          '30%': 60,
+          '35%': 70,
+          '40%': 80,
+          '45%': 90,
+          '50%': 100,
+          '55%': 110,
+          '60%': 120,
+          '65%': 130,
+          '70%': 140,
+          '75%': 150,
+          '80%': 160,
+          '85%': 170,
+          '90%': 180,
+          '95%': 190,
+          'max': 200
+        },
       }).noUiSlider_pips({
-        mode: 'range',
-        density: 5
+        mode: 'positions',
+        values: [0,25,50,75,100],
+        density: 3
       });
 
       $('#price-slider').Link('lower').to($('#min'));

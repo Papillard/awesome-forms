@@ -31,7 +31,7 @@ $input-color-placeholder: lighten($input-border, 5%);
 @import "form";           // Form sections and labels (not handled by Bootstrap scss variables)
 @import "fa-placeholder"; // library to append font-awesome icons to input placeholder
 @import "search-form";    // Specific design for inline search form
-
+@import "order-form";     // Specific design for order form with range slider
 
 body{
   padding-top: 100px;

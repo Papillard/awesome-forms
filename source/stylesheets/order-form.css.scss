@@ -1,0 +1,50 @@
+$slider-height: 8px;
+$slider-bg: white;
+$range-bg: #F05B2A;
+$control-width: 14px;
+
+
+#order-form{
+
+  .noUi-background {
+    background: $slider-bg;
+    box-shadow: inset 0 1px 1px #f0f0f0;
+  }
+  .noUi-horizontal{
+    height: $slider-height;
+  }
+  .noUi-connect {
+    background: $range-bg;
+  }
+  .noUi-target {
+    border-radius: 0px;
+    border: none;
+    box-shadow: none;
+  }
+  .noUi-handle {
+    width: $control-width;
+    height: 3 * $slider-height;
+    left: - $control-width / 2;
+    top: - $slider-height;
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    background: #FFF;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .noUi-handle:before, .noUi-handle:after {
+    content: "";
+    display: block;
+    position: absolute;
+    height: $slider-height;
+    width: 1px;
+    background: #E8E7E6;
+    top: $slider-height;
+  }
+  .noUi-handle:before{
+    left: $control-width / 3 - 1px;
+  }
+  .noUi-handle:after{
+    left: $control-width / 3 + 2px;
+  }
+}
