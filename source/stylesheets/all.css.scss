@@ -1,18 +1,22 @@
 @import url("http://fonts.googleapis.com/css?family=Open+Sans:400,300,700");
 
+// Bootstrap over-ride for most global styles
 $body-bg: #2C89C8;
 $font-family-sans-serif: "Open Sans";
-
 $link-color: #cccccc;
 $link-hover-color: darken($link-color, 10%);
 $link-hover-decoration: none;
 
+// Bootstrap over-ride for button
 $btn-danger-bg: #F05B2A;
 
+// Bootstrap over-ride for forms
 $input-border: #d9d9d9;
 $input-color: darken($input-border, 30%);
 $input-color-placeholder: lighten($input-border, 5%);
 
+
+// External stylesheets installed with gems
 @import "bootstrap";
 @import "font-awesome-sprockets";
 @import "font-awesome";
@@ -23,9 +27,10 @@ $input-color-placeholder: lighten($input-border, 5%);
 @import "selectize.default";
 
 
-@import "form";
-@import "fa-placeholder";
-@import "search";
+// Personal stylesheets
+@import "form";           // Form sections and labels (not handled by Bootstrap scss variables)
+@import "fa-placeholder"; // library to append font-awesome icons to input placeholder
+@import "search-form";    // Specific design for inline search form
 
 
 body{
@@ -40,11 +45,12 @@ body{
 
 #menu{
   background: #F9FAFA;
-  border-radius: 10px;
-  box-shadow: 0 0 3px #e6e6e6;
+  border-radius: 5px;
+  box-shadow: 1px 1px 3px darken(#F9FAFA, 40%);
   padding: 40px;
   a{
     font-size: 20px;
+    font-weight: 300;
   }
 }
 
