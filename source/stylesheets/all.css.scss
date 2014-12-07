@@ -9,9 +9,9 @@ $link-hover-decoration: none;
 
 $btn-danger-bg: #F05B2A;
 
-$input-border: #e6e6e6;
-$input-color: darken(#e6e6e6, 30%);
-$input-color-placeholder: #e6e6e6;
+$input-border: #d9d9d9;
+$input-color: darken($input-border, 30%);
+$input-color-placeholder: lighten($input-border, 5%);
 
 @import "bootstrap";
 @import "font-awesome-sprockets";
@@ -21,8 +21,8 @@ $input-color-placeholder: #e6e6e6;
 @import "selectize.default";
 
 @import "form";
+@import "fa-placeholder";
 @import "search";
-
 
 
 body{
