@@ -1,0 +1,12 @@
+/* line 1, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
+#trip-search {
+  padding: 20px;
+  width: 80%;
+  margin: 0 auto; }
+  /* line 5, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
+  #trip-search .selectize-input {
+    min-width: 300px !important;
+    vertical-align: -10px; }
+  /* line 11, /Users/papillard/code/Papillard/awesome-forms/source/stylesheets/search-form.css.scss */
+  #trip-search .input-daterange input {
+    height: 36px; }
