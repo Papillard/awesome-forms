@@ -1,0 +1,32 @@
+$base-color: #e6e6e6;
+
+form{
+  label{
+    font-size: 18px;
+    font-weight: 300;
+    color: darken($base-color, 50%);
+  }
+}
+
+.form-box{
+  background: #F9FAFA;
+  border-radius: 3px;
+  border: 1px solid $base-color;
+  box-shadow: 1px 1px 1px darken($base-color, 10%);
+  .header{
+    background: white;
+    padding: 10px 0;
+    border-bottom: 1px solid #e6e6e6;
+    border-radius: 3px 3px 0 0 ;
+    color: darken($base-color, 60%);
+    h2, h3{
+      font-weight: 100;
+    }
+  }
+  .body{
+    padding: 20px;
+  }
+  a{
+    font-weight: 100;
+  }
+}

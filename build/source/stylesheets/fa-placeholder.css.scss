@@ -1,0 +1,93 @@
+// Setting fontawesome icons in placeholder
+// See http://fortawesome.github.io/Font-Awesome/cheatsheet/
+// to create your own placeholder class with the unicode of the icon you want
+
+$base-color: #e6e6e6;
+
+input{
+
+  &.email-placeholder{
+    &::-webkit-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f003  ';
+      color: $base-color;
+    }
+    &::-moz-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f003  ';
+      color: $base-color;
+    }
+    &::-ms-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f003  ';
+      color: $base-color;
+    }
+  }
+
+
+  &.password-placeholder{
+    &::-webkit-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f023  ';
+      color: $base-color;
+    }
+    &::-moz-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f023  ';
+      color: $base-color;
+    }
+    &::-ms-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f023  ';
+      color: $base-color;
+    }
+  }
+
+  &.search-placeholder{
+    &::-webkit-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f002  ';
+      color: $base-color;
+    }
+    &::-moz-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f002  ';
+      color: $base-color;
+    }
+    &::-ms-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f002  ';
+      color: $base-color;
+    }
+  }
+
+  &.date-placeholder{
+    &::-webkit-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f073  ';
+      color: $base-color;
+    }
+    &::-moz-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f073  ';
+      color: $base-color;
+    }
+    &::-ms-input-placeholder::before
+    {
+      font-family: fontAwesome;
+      content: '\f073  ';
+      color: $base-color;
+    }
+  }
+}
